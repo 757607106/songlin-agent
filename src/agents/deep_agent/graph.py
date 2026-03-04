@@ -79,24 +79,24 @@ class DeepAgent(BaseAgent):
 
         # Assert that search tool is available for DeepAgent
         assert tools, (
-            "DeepAgent requires at least one search tool. "
-            "Please configure TAVILY_API_KEY environment variable to enable web search."
+            "DeepAgent 需要至少一个搜索工具。"
+            "请配置 TAVILY_API_KEY 环境变量以启用网络搜索。"
         )
         return tools
 
     async def get_graph(self, **kwargs):
         """构建 Deep Agent 的图"""
         context = self.context_schema.from_file(module_name=self.module_name)
+        context.update(kwargs)
 
         model = load_chat_model(context.model)
-        sub_model = load_chat_model(context.subagents_model)
         search_tools = await self.get_tools()
         all_mcp_tools = await get_tools_from_all_servers()
 
         research_sub_agent = _get_research_sub_agent(search_tools)
-        research_sub_agent["model"] = sub_model
+        research_sub_agent["model"] = model
         critique_sub_agent = _get_critique_sub_agent(search_tools)
-        critique_sub_agent["model"] = sub_model
+        critique_sub_agent["model"] = model
 
         # 关键说明：这里改为官方 create_deep_agent 入口，子agent通过 subagents 参数注册。
         # 这样与 reporter 的 deep-agent 化方案一致，维护成本更低。

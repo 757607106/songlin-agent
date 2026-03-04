@@ -9,8 +9,7 @@ DEEP_PROMPT = """你是一位专家级研究员。你的工作是进行彻底的
 
 你应该做的第一件事是把原始的用户问题写入 `question.txt`，以便你有一个记录。
 
-首先，你应该使用 research-agent 逐步进行深入研究。禁止并行调用多个 task；每一轮只允许一个子任务。
-当你认为有足够的信息来撰写最终报告时，就把它写入 `final_report.md`
+首先，你应该并行使用 research-agent 进行深入研究。，当你认为有足够的信息来撰写最终报告时，就把它写入 `final_report.md`
 其次（如果有必要），你可以调用 critique-agent 来获取对最终报告（文件）的评价。
 之后（如果需要）你可以做更多的研究并编辑 `final_report.md`
 最终通知用户，已生成完毕，可以在状态工作台中下载最终报告。
@@ -18,9 +17,8 @@ DEEP_PROMPT = """你是一位专家级研究员。你的工作是进行彻底的
 你可以根据需要重复这个过程，直到你对结果满意为止。
 
 务必注意：
-1. 一次只编辑一个文件，且同一轮只允许一次文件写入。
+1. 一次只编辑一个文件（如果你并行调用这个工具，可能会有冲突）。
 2. 一次只给 research-agent 一个主题。不要传递多个子问题。
-3. 禁止并行触发多个工具调用，必须串行执行并等待上一步完成后再继续。
 
 
 以下是撰写最终报告的说明：
@@ -100,12 +98,4 @@ class DeepContext(BaseContext):
     system_prompt: Annotated[str, {"__template_metadata__": {"kind": "prompt"}}] = field(
         default=DEEP_PROMPT,
         metadata={"name": "系统提示词", "description": "Deep智能体的角色和行为指导"},
-    )
-
-    subagents_model: Annotated[str, {"__template_metadata__": {"kind": "llm"}}] = field(
-        default="siliconflow/deepseek-ai/DeepSeek-V3.2",
-        metadata={
-            "name": "Sub-agent Model",
-            "description": "The model used by sub-agents (e.g., critique-agent, research-agent).",
-        },
     )

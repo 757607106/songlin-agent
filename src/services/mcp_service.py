@@ -1,10 +1,10 @@
-"""MCP Service - Unified business logic and state management for MCP.
+"""MCP 服务 - MCP 的统一业务逻辑和状态管理。
 
-Responsibilities:
-- Server configuration CRUD operations
-- Configuration synchronization (Database <-> Cache)
-- Unified entry point for Agent tool retrieval (auto-filtering disabled_tools)
-- MCP Client and Tools management (formerly in agents/common/mcp.py)
+职责：
+- 服务器配置 CRUD 操作
+- 配置同步（数据库 <-> 缓存）
+- Agent 工具检索的统一入口（自动过滤 disabled_tools）
+- MCP 客户端和工具管理（原 agents/common/mcp.py）
 """
 
 import asyncio
@@ -21,22 +21,22 @@ from src.storage.postgres.models_business import MCPServer
 from src.utils import logger
 
 # =============================================================================
-# === Global Cache & State ===
+# === 全局缓存与状态 ===
 # =============================================================================
 
-# Global Lock for MCP state
+# MCP 状态的全局锁
 _mcp_lock = asyncio.Lock()
 
-# Global MCP tools cache
+# 全局 MCP 工具缓存
 _mcp_tools_cache: dict[str, list[Callable[..., Any]]] = {}
 
-# MCP tools statistics (for reporting enabled/disabled counts)
+# MCP 工具统计信息（用于报告启用/禁用数量）
 _mcp_tools_stats: dict[str, dict[str, int]] = {}
 
-# MCP Server configurations (Runtime cache, loaded from DB)
+# MCP 服务器配置（运行时缓存，从数据库加载）
 MCP_SERVERS: dict[str, dict[str, Any]] = {}
 
-# Default MCP Server configurations (Imported to DB on first run)
+# 默认 MCP 服务器配置（首次运行时导入数据库）
 _DEFAULT_MCP_SERVERS = {
     "sequentialthinking": {
         "url": "https://remote.mcpservers.org/sequentialthinking/mcp",
@@ -56,15 +56,15 @@ _DEFAULT_MCP_SERVERS = {
 }
 
 # =============================================================================
-# === Core Logic (Moved from agents/common/mcp.py) ===
+# === 核心逻辑（从 agents/common/mcp.py 移动） ===
 # =============================================================================
 
 
 async def load_mcp_servers_from_db() -> None:
-    """Load all enabled MCP server configurations from database to MCP_SERVERS cache."""
+    """将所有启用的 MCP 服务器配置从数据库加载到 MCP_SERVERS 缓存。"""
     global MCP_SERVERS
 
-    # Delayed import to avoid circular references
+    # 延迟导入以避免循环引用
     from src.storage.postgres.manager import pg_manager
 
     try:
@@ -83,11 +83,11 @@ async def load_mcp_servers_from_db() -> None:
 
 
 async def sync_mcp_server_to_cache(name: str, config: dict[str, Any] | None) -> None:
-    """Sync a single MCP server configuration to cache.
+    """同步单个 MCP 服务器配置到缓存。
 
     Args:
-        name: Server name
-        config: Server configuration, or None to remove from cache
+        name: 服务器名称
+        config: 服务器配置，若为 None 则从缓存中移除
     """
     global MCP_SERVERS
 
@@ -99,28 +99,28 @@ async def sync_mcp_server_to_cache(name: str, config: dict[str, Any] | None) -> 
             MCP_SERVERS[name] = config
             logger.info(f"Synced MCP server '{name}' to cache")
 
-        # Clear tools cache for this server
+        # 清除该服务器的工具缓存
         _mcp_tools_cache.pop(name, None)
 
 
 async def init_mcp_servers() -> None:
-    """Initialize MCP server configurations.
+    """初始化 MCP 服务器配置。
 
-    On first run, if database is empty, import default configurations.
-    Then load configurations from database to MCP_SERVERS cache.
-    Also ensures all built-in MCP servers are present in the database.
+    首次运行时，如果数据库为空，则导入默认配置。
+    然后从数据库加载配置到 MCP_SERVERS 缓存。
+    同时确保所有内置 MCP 服务器都存在于数据库中。
     """
-    # Delayed import to avoid circular references
+    # 延迟导入以避免循环引用
     from src.storage.postgres.manager import pg_manager
 
     try:
         async with pg_manager.get_async_session_context() as session:
-            # Check if database has MCP configurations
+            # 检查数据库是否有 MCP 配置
             result = await session.execute(select(func.count(MCPServer.name)))
             count = result.scalar()
 
             if count == 0:
-                # Database is empty, import default configurations
+                # 数据库为空，导入默认配置
                 logger.info("No MCP servers in database, importing default configurations...")
                 for name, config in _DEFAULT_MCP_SERVERS.items():
                     server = MCPServer(
@@ -143,7 +143,7 @@ async def init_mcp_servers() -> None:
                 await session.commit()
                 logger.info(f"Imported {len(_DEFAULT_MCP_SERVERS)} default MCP servers to database")
             else:
-                # Ensure all built-in MCP servers exist in database
+                # 确保所有内置 MCP 服务器都存在于数据库中
                 for name, config in _DEFAULT_MCP_SERVERS.items():
                     result = await session.execute(select(MCPServer).filter(MCPServer.name == name))
                     existing = result.scalar_one_or_none()
@@ -166,11 +166,11 @@ async def init_mcp_servers() -> None:
                         )
                         session.add(server)
                         logger.info(f"Added built-in MCP server '{name}' to database")
-                # Commit if any new servers were added (check session state)
+                # 如果添加了新服务器则提交（检查会话状态）
                 if session.new:
                     await session.commit()
 
-        # Load configurations from database to cache
+        # 从数据库加载配置到缓存
         await load_mcp_servers_from_db()
 
     except Exception as e:
@@ -180,7 +180,7 @@ async def init_mcp_servers() -> None:
 async def get_mcp_client(
     server_configs: dict[str, Any] | None = None,
 ) -> MultiServerMCPClient | None:
-    """Initializes an MCP client with the given server configurations."""
+    """使用给定的服务器配置初始化 MCP 客户端。"""
     try:
         client = MultiServerMCPClient(server_configs)  # pyright: ignore[reportArgumentType]
         logger.info(f"Initialized MCP client with servers: {list(server_configs.keys())}")
@@ -191,11 +191,11 @@ async def get_mcp_client(
 
 
 def to_camel_case(s: str) -> str:
-    """Convert string to lowerCamelCase."""
+    """将字符串转换为小写驼峰命名（lowerCamelCase）。"""
 
-    # Handle - and _
+    # 处理 - 和 _
     s = re.sub(r"[-_]+(.)", lambda m: m.group(1).upper(), s)
-    # Lowercase first letter
+    # 首字母小写
     if len(s) > 0:
         s = s[0].lower() + s[1:]
     return s
@@ -208,38 +208,38 @@ async def get_mcp_tools(
     cache: bool = True,
     force_refresh: bool = False,
 ) -> list[Callable[..., Any]]:
-    """Get MCP tools for a specific server.
+    """获取指定服务器的 MCP 工具。
 
-    Architecture:
-    1. Fetching: Connects to MCP server to get ALL tools.
-    2. Caching: Stores the FULL, UNFILTERED list of tools in `_mcp_tools_cache`.
-    3. Filtering: Filters the return value based on `disabled_tools` argument.
+    架构：
+    1. 获取：连接到 MCP 服务器以获取所有工具。
+    2. 缓存：将完整、未过滤的工具列表存储在 `_mcp_tools_cache` 中。
+    3. 过滤：根据 `disabled_tools` 参数过滤返回值。
 
     Args:
-        server_name: Server name
-        additional_servers: Additional server configurations
-        disabled_tools: List of tool names to filter out from the RETURN value (does not affect cache)
-        cache: Whether to use/update the cache (default: True)
-        force_refresh: Whether to force a refresh from the server (default: False)
+        server_name: 服务器名称
+        additional_servers: 额外的服务器配置
+        disabled_tools: 要从返回值中过滤掉的工具名称列表（不影响缓存）
+        cache: 是否使用/更新缓存（默认：True）
+        force_refresh: 是否强制从服务器刷新（默认：False）
     """
     global _mcp_tools_cache
 
-    # 1. Prepare Server Config
+    # 1. 准备服务器配置
     async with _mcp_lock:
         mcp_servers = MCP_SERVERS | (additional_servers or {})
 
     all_processed_tools = []
 
-    # 2. Check Cache / Fetch Strategy
-    # If we have it in cache and don't need to force refresh, use cache.
+    # 2. 检查缓存 / 获取策略
+    # 如果缓存中有且不需要强制刷新，则使用缓存。
     if not force_refresh and cache and server_name in _mcp_tools_cache:
         all_processed_tools = _mcp_tools_cache[server_name]
     else:
-        # Need to fetch from server
+        # 需要从服务器获取
         try:
             assert server_name in mcp_servers, f"Server {server_name} not found in ({list(mcp_servers.keys())})"
 
-            # Extract connection config
+            # 提取连接配置
             server_config = mcp_servers[server_name]
             client_config = {k: v for k, v in server_config.items() if k not in ("disabled_tools",)}
 
@@ -247,31 +247,31 @@ async def get_mcp_tools(
             if client is None:
                 return []
 
-            # Get ALL tools (Raw)
+            # 获取所有工具（原始）
             raw_tools = cast(list[Any], await client.get_tools())
 
-            # Render IDs for ALL tools
+            # 为所有工具生成 ID
             server_cc = to_camel_case(server_name)
             for tool in raw_tools:
-                # Render unique ID rule: mcp__[camelCaseServer]__[camelCaseTool]
+                # 生成唯一 ID 规则：mcp__[camelCaseServer]__[camelCaseTool]
                 original_name = tool.name
                 tool_cc = to_camel_case(original_name)
                 unique_id = f"mcp__{server_cc}__{tool_cc}"
 
-                # Use metadata to store
+                # 使用元数据存储
                 if tool.metadata is None:
                     tool.metadata = {}
                 tool.metadata["id"] = unique_id
 
                 all_processed_tools.append(tool)
 
-            # Update Cache (Store the FULL list)
+            # 更新缓存（存储完整列表）
             if cache:
                 _mcp_tools_cache[server_name] = all_processed_tools
 
-                # Update Stats
-                # Stats should reflect the GLOBAL configuration state
-                # (How many are disabled in the stored config, not the transient arg)
+                # 更新统计信息
+                # 统计信息应反映全局配置状态
+                # （存储配置中禁用了多少，而不是临时参数）
                 global_config_disabled = mcp_servers.get(server_name, {}).get("disabled_tools") or []
                 enabled_count = len([t for t in all_processed_tools if t.name not in global_config_disabled])
 
@@ -292,7 +292,7 @@ async def get_mcp_tools(
             )
             return []
 
-    # 3. Filtering (Apply to Return Value Only)
+    # 3. 过滤（仅应用于返回值）
     if disabled_tools:
         filtered_tools = [t for t in all_processed_tools if t.name not in disabled_tools]
         logger.debug(
@@ -305,7 +305,7 @@ async def get_mcp_tools(
 
 
 async def get_tools_from_all_servers() -> list[Callable[..., Any]]:
-    """Get all tools from all configured MCP servers."""
+    """获取所有已配置 MCP 服务器的所有工具。"""
     all_tools = []
     for server_name in MCP_SERVERS.keys():
         tools = await get_mcp_tools(server_name)
@@ -314,21 +314,21 @@ async def get_tools_from_all_servers() -> list[Callable[..., Any]]:
 
 
 def add_mcp_server(name: str, config: dict[str, Any]) -> None:
-    """Add a new MCP server configuration."""
+    """添加新的 MCP 服务器配置。"""
     MCP_SERVERS[name] = config
-    # Clear client to force reinitialization with new config
+    # 清除客户端以强制使用新配置重新初始化
     clear_mcp_cache()
 
 
 def clear_mcp_cache() -> None:
-    """Clear the MCP tools cache (useful for testing)."""
+    """清除 MCP 工具缓存（用于测试）。"""
     global _mcp_tools_cache, _mcp_tools_stats
     _mcp_tools_cache = {}
     _mcp_tools_stats = {}
 
 
 def clear_mcp_server_tools_cache(server_name: str) -> None:
-    """Clear the tools cache for a specific MCP server."""
+    """清除特定 MCP 服务器的工具缓存。"""
     global _mcp_tools_cache, _mcp_tools_stats
     _mcp_tools_cache.pop(server_name, None)
     _mcp_tools_stats.pop(server_name, None)
@@ -336,27 +336,27 @@ def clear_mcp_server_tools_cache(server_name: str) -> None:
 
 
 def get_mcp_tools_stats(server_name: str) -> dict[str, int] | None:
-    """Get tools statistics for a MCP server.
+    """获取 MCP 服务器的工具统计信息。
 
     Returns:
-        dict with 'total', 'enabled', 'disabled' counts, or None if not available
+        包含 'total', 'enabled', 'disabled' 计数的字典，如果不可用则返回 None
     """
     return _mcp_tools_stats.get(server_name)
 
 
 # =============================================================================
-# === Server Config CRUD (Existing in mcp_service.py) ===
+# === 服务器配置 CRUD（mcp_service.py 中已存在） ===
 # =============================================================================
 
 
 async def get_mcp_server(db: AsyncSession, name: str) -> MCPServer | None:
-    """Get single server configuration."""
+    """获取单个服务器配置。"""
     result = await db.execute(select(MCPServer).filter(MCPServer.name == name))
     return result.scalar_one_or_none()
 
 
 async def get_all_mcp_servers(db: AsyncSession) -> list[MCPServer]:
-    """Get all server configurations."""
+    """获取所有服务器配置。"""
     result = await db.execute(select(MCPServer))
     return list(result.scalars().all())
 
@@ -376,8 +376,8 @@ async def create_mcp_server(
     icon: str = None,
     created_by: str = None,
 ) -> MCPServer:
-    """Create server."""
-    # Check if name exists
+    """创建服务器。"""
+    # 检查名称是否存在
     existing = await get_mcp_server(db, name)
     if existing:
         raise ValueError(f"Server name '{name}' already exists")
@@ -402,7 +402,7 @@ async def create_mcp_server(
     await db.commit()
     await db.refresh(server)
 
-    # Sync to cache
+    # 同步到缓存
     await sync_mcp_server_to_cache(name, server.to_mcp_config())
 
     logger.info(f"Created MCP server '{name}'")
@@ -424,7 +424,7 @@ async def update_mcp_server(
     icon: str = None,
     updated_by: str = None,
 ) -> MCPServer:
-    """Update server configuration."""
+    """更新服务器配置。"""
     server = await get_mcp_server(db, name)
     if not server:
         raise ValueError(f"Server '{name}' does not exist")
@@ -455,7 +455,7 @@ async def update_mcp_server(
     await db.commit()
     await db.refresh(server)
 
-    # Sync to cache (if enabled)
+    # 同步到缓存（如果已启用）
     if server.enabled:
         await sync_mcp_server_to_cache(name, server.to_mcp_config())
 
@@ -464,7 +464,7 @@ async def update_mcp_server(
 
 
 async def delete_mcp_server(db: AsyncSession, name: str) -> bool:
-    """Delete server."""
+    """删除服务器。"""
     server = await get_mcp_server(db, name)
     if not server:
         return False
@@ -472,7 +472,7 @@ async def delete_mcp_server(db: AsyncSession, name: str) -> bool:
     await db.delete(server)
     await db.commit()
 
-    # Remove from cache
+    # 从缓存中移除
     await sync_mcp_server_to_cache(name, None)
 
     logger.info(f"Deleted MCP server '{name}'")
@@ -480,12 +480,12 @@ async def delete_mcp_server(db: AsyncSession, name: str) -> bool:
 
 
 # =============================================================================
-# === Tool Management ===
+# === 工具管理 ===
 # =============================================================================
 
 
 async def toggle_server_enabled(db: AsyncSession, name: str, updated_by: str = None) -> tuple[bool, MCPServer]:
-    """Toggle server enabled status."""
+    """切换服务器启用状态。"""
     server = await get_mcp_server(db, name)
     if not server:
         raise ValueError(f"Server '{name}' does not exist")
@@ -495,7 +495,7 @@ async def toggle_server_enabled(db: AsyncSession, name: str, updated_by: str = N
         server.updated_by = updated_by
     await db.commit()
 
-    # Sync to cache
+    # 同步到缓存
     is_enabled = bool(server.enabled)
     server_config = server.to_mcp_config() if is_enabled else None
     await sync_mcp_server_to_cache(name, server_config)
@@ -510,16 +510,16 @@ async def toggle_tool_enabled(
     tool_name: str,
     updated_by: str = None,
 ) -> tuple[bool, MCPServer]:
-    """Toggle single tool enabled status.
+    """切换单个工具的启用状态。
 
     Args:
-        db: Database session
-        server_name: Server name
-        tool_name: Tool name
-        updated_by: Updater
+        db: 数据库会话
+        server_name: 服务器名称
+        tool_name: 工具名称
+        updated_by: 更新者
 
     Returns:
-        (enabled, server): Tool enabled status and updated server object
+        (enabled, server): 工具启用状态和更新后的服务器对象
     """
     server = await get_mcp_server(db, server_name)
     if not server:
@@ -539,7 +539,7 @@ async def toggle_tool_enabled(
         server.updated_by = updated_by
     await db.commit()
 
-    # Clear tool cache (re-filtered on next fetch)
+    # 清除工具缓存（下次获取时重新过滤）
     clear_mcp_server_tools_cache(server_name)
 
     logger.info(f"Toggled tool '{tool_name}' for server '{server_name}' enabled={enabled}")
@@ -547,12 +547,12 @@ async def toggle_tool_enabled(
 
 
 # =============================================================================
-# === Unified Entry Points (Wrappers) ===
+# === 统一入口点（包装器） ===
 # =============================================================================
 
 
 def get_mcp_server_names() -> list[str]:
-    """Get list of loaded MCP server names.
+    """获取已加载的 MCP 服务器名称列表。
 
     Returns a copy of keys to avoid runtime modification issues during iteration.
     """
@@ -560,18 +560,18 @@ def get_mcp_server_names() -> list[str]:
 
 
 async def get_enabled_mcp_tools(server_name: str) -> list:
-    """Get MCP server tools (auto-filtering disabled_tools).
+    """获取 MCP 服务器工具（自动过滤 disabled_tools）。
 
-    Unified entry point for Agents, automatically:
-    1. Gets server config from cache
-    2. Gets all tools
-    3. Filters out disabled_tools
+    Agent 的统一入口点，自动执行：
+    1. 从缓存获取服务器配置
+    2. 获取所有工具
+    3. 过滤掉 disabled_tools
 
     Args:
-        server_name: Server name
+        server_name: 服务器名称
 
     Returns:
-        List of enabled tools
+        启用工具的列表
     """
     config = MCP_SERVERS.get(server_name)
     if not config:
@@ -583,28 +583,28 @@ async def get_enabled_mcp_tools(server_name: str) -> list:
 
 
 async def get_servers_config(names: list[str]) -> dict[str, dict[str, Any]]:
-    """Batch get server configurations.
+    """批量获取服务器配置。
 
     Args:
-        names: List of server names
+        names: 服务器名称列表
 
     Returns:
-        {name: config} dictionary, containing only found servers
+        {name: config} 字典，仅包含找到的服务器
     """
     return {name: MCP_SERVERS[name] for name in names if name in MCP_SERVERS}
 
 
 async def get_all_mcp_tools(server_name: str) -> list:
-    """Get all tools of an MCP server (no filtering).
+    """获取 MCP 服务器的所有工具（不过滤）。
 
-    For management UI to display tool list, supports viewing all tools and their enabled status.
-    Does NOT update the global tools cache to avoid polluting agent's filtered view.
+    用于管理 UI 显示工具列表，支持查看所有工具及其启用状态。
+    不会更新全局工具缓存，以免污染 Agent 的过滤视图。
 
     Args:
-        server_name: Server name
+        server_name: 服务器名称
 
     Returns:
-        List of all tools (unfiltered)
+        所有工具的列表（未过滤）
     """
     config = MCP_SERVERS.get(server_name)
     if not config:
