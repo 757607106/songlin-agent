@@ -52,7 +52,7 @@
 
       <!-- 中间内容区域 -->
       <div class="content">
-        <AgentChatComponent
+        <XAgentChatComponent
           ref="chatComponentRef"
           :single-mode="false"
           @open-config="toggleConf"
@@ -122,7 +122,7 @@
               <Ellipsis size="18" class="nav-btn-icon" />
             </div>
           </template>
-        </AgentChatComponent>
+        </XAgentChatComponent>
       </div>
 
       <!-- 配置侧边栏 -->
@@ -176,7 +176,7 @@ import {
 } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import { Settings2, Ellipsis, ChevronDown, Star, Plus, SquarePen } from 'lucide-vue-next'
-import AgentChatComponent from '@/components/AgentChatComponent.vue'
+import XAgentChatComponent from '@/components/x/XAgentChatComponent.vue'
 import AgentConfigSidebar from '@/components/AgentConfigSidebar.vue'
 import FeedbackModalComponent from '@/components/dashboard/FeedbackModalComponent.vue'
 import { useUserStore } from '@/stores/user'

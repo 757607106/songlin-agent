@@ -85,16 +85,20 @@ class BaseAgent:
             "recursion_limit": 300,
         }
 
-        # 使用多模式流式 + subgraphs=True 来获取子 Agent 执行过程
-        # 官方文档格式: (namespace, chunk) 其中 chunk = (mode, data)
-        async for namespace, chunk in graph.astream(
+        # 使用 messages 模式流式输出
+        # 官方文档格式: stream_mode="messages" 返回 (message_chunk, metadata)
+        # 使用 subgraphs=True 时返回 (namespace, (message_chunk, metadata))
+        async for item in graph.astream(
             {"messages": messages},
-            stream_mode=["messages", "updates"],
+            stream_mode="messages",
             context=context,
             config=input_config,
             subgraphs=True,
         ):
-            mode, data = chunk[0], chunk[1]  # 从 chunk 中提取 mode 和 data
+            # 解析返回值：(namespace, (msg, metadata))
+            namespace, msg_tuple = item
+            msg, metadata = msg_tuple
+
             # 解析 namespace 判断是否为子 Agent
             is_subagent = any(s.startswith("tools:") for s in namespace) if namespace else False
             subagent_name = None
@@ -105,25 +109,12 @@ class BaseAgent:
                         subagent_name = ns.split(":")[0] if ":" in ns else ns
                         break
 
-            if mode == "messages":
-                msg, metadata = data
-                # 添加子 Agent 信息到 metadata
-                enriched_metadata = dict(metadata) if metadata else {}
-                enriched_metadata["is_subagent"] = is_subagent
-                enriched_metadata["subagent_name"] = subagent_name
-                enriched_metadata["namespace"] = list(namespace) if namespace else []
-                yield msg, enriched_metadata
-            elif mode == "updates":
-                # 发送状态更新事件（包含子 Agent 步骤信息）
-                update_event = {
-                    "type": "state_update",
-                    "is_subagent": is_subagent,
-                    "subagent_name": subagent_name,
-                    "namespace": list(namespace) if namespace else [],
-                    "nodes": list(data.keys()) if isinstance(data, dict) else [],
-                    "data": data,
-                }
-                yield update_event, {"mode": "updates"}
+            # 添加子 Agent 信息到 metadata
+            enriched_metadata = dict(metadata) if metadata else {}
+            enriched_metadata["is_subagent"] = is_subagent
+            enriched_metadata["subagent_name"] = subagent_name
+            enriched_metadata["namespace"] = list(namespace) if namespace else []
+            yield msg, enriched_metadata
 
     async def invoke_messages(self, messages: list[str], input_context=None, **kwargs):
         graph = await self.get_graph()

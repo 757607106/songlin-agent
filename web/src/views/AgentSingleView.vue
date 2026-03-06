@@ -39,7 +39,7 @@
     </a-modal>
 
     <!-- 智能体聊天界面 -->
-    <AgentChatComponent ref="chatComponentRef" :agent-id="agentId" :single-mode="true">
+    <XAgentChatComponent ref="chatComponentRef" :agent-id="agentId" :single-mode="true">
       <template #header-left>
         <div type="button" class="agent-nav-btn" @click="openAgentModal">
           <span class="text">{{ currentAgentName || '选择智能体' }}</span>
@@ -53,7 +53,7 @@
         </div>
         <UserInfoComponent />
       </template>
-    </AgentChatComponent>
+    </XAgentChatComponent>
   </div>
 </template>
 
@@ -63,7 +63,7 @@ import { message } from 'ant-design-vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Share2, ChevronDown } from 'lucide-vue-next'
 import { StarFilled, StarOutlined } from '@ant-design/icons-vue'
-import AgentChatComponent from '@/components/AgentChatComponent.vue'
+import XAgentChatComponent from '@/components/x/XAgentChatComponent.vue'
 import UserInfoComponent from '@/components/UserInfoComponent.vue'
 import { ChatExporter } from '@/utils/chatExporter'
 import { handleChatError } from '@/utils/errorHandler'
