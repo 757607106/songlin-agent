@@ -93,12 +93,18 @@ class RuntimeConfigMiddleware(AgentMiddleware):
         if self.enable_tools_override:
             enabled_tools = await self.get_tools_from_context(runtime_context)
             existing_tools = list(request.tools or [])
+            managed_tool_names = {t.name for t in self.tools}
+            enabled_tool_names = {t.name for t in enabled_tools}
             merged_tools = []
+            merged_tool_names = set()
             for t_bind in existing_tools:
-                # (1) 已启用的工具保留
-                # (2) 非本中间件管理的工具保留
-                if t_bind.name in [t.name for t in enabled_tools] or t_bind.name not in [t.name for t in self.tools]:
+                if t_bind.name in enabled_tool_names or t_bind.name not in managed_tool_names:
                     merged_tools.append(t_bind)
+                    merged_tool_names.add(t_bind.name)
+            for t_bind in enabled_tools:
+                if t_bind.name not in merged_tool_names:
+                    merged_tools.append(t_bind)
+                    merged_tool_names.add(t_bind.name)
             overrides["tools"] = merged_tools
             logger.debug(f"RuntimeConfigMiddleware selected tools: {[t.name for t in merged_tools]}")
 

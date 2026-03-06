@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from typing import NotRequired
+from typing import Annotated, Any, NotRequired
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
@@ -14,11 +14,23 @@ from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResp
 from src.utils import logger
 
 
+def _files_reducer(
+    left: dict[str, dict[str, Any]] | None,
+    right: dict[str, dict[str, Any]] | None,
+) -> dict[str, dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    if left:
+        merged.update(left)
+    if right:
+        merged.update(right)
+    return merged
+
+
 class AttachmentState(AgentState):
     """扩展 AgentState 以支持附件"""
 
     attachments: NotRequired[list[dict]]
-    files: NotRequired[dict[str, str]]  # {"/attachments/xxx/file.md": content}
+    files: Annotated[NotRequired[dict[str, dict[str, Any]]], _files_reducer]
 
 
 def _build_attachment_prompt(attachments: Sequence[dict]) -> str | None:

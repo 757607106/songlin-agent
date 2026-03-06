@@ -47,13 +47,16 @@ async def test_sync_thread_attachment_state_updates_graph(monkeypatch: pytest.Mo
     )
 
     class FakeGraph:
+        nodes = {"__start__": object()}
+
         async def aget_state(self, config):
             captured["read_config"] = config
             return fake_state
 
-        async def aupdate_state(self, *, config, values):
+        async def aupdate_state(self, *, config, values, as_node=None):
             captured["write_config"] = config
             captured["write_values"] = values
+            captured["write_as_node"] = as_node
 
     class FakeAgent:
         async def get_graph(self):
@@ -79,6 +82,7 @@ async def test_sync_thread_attachment_state_updates_graph(monkeypatch: pytest.Mo
     assert captured["read_config"] == {"configurable": {"thread_id": "thread-1", "user_id": "u1"}}
     assert captured["write_config"] == {"configurable": {"thread_id": "thread-1", "user_id": "u1"}}
     assert captured["write_values"]["attachments"] == attachments
+    assert captured["write_as_node"] == "__start__"
     assert "/attachments/resume.md" in captured["write_values"]["files"]
     assert "/attachments/old.md" not in captured["write_values"]["files"]
     assert "/work/result.md" in captured["write_values"]["files"]

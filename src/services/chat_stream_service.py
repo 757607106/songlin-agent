@@ -63,16 +63,35 @@ async def _get_langgraph_messages(config_dict, graph):
     return state.values.get("messages", [])
 
 
-def extract_agent_state(values: dict) -> dict:
+def extract_agent_state(values: dict, *, include_attachment_content: bool = False) -> dict:
     """从 LangGraph state 中提取 agent 状态"""
     if not isinstance(values, dict):
         return {}
 
-    # 直接获取，信任 state 的数据结构
     todos = values.get("todos")
+    files = values.get("files") or {}
+    if isinstance(files, dict):
+        optimized_files = {}
+        for path, file_data in files.items():
+            if not isinstance(path, str) or not isinstance(file_data, dict):
+                continue
+            if include_attachment_content or not path.startswith("/attachments/"):
+                optimized_files[path] = file_data
+                continue
+            line_count = len(file_data.get("content", [])) if isinstance(file_data.get("content"), list) else 0
+            optimized_files[path] = {
+                "created_at": file_data.get("created_at"),
+                "modified_at": file_data.get("modified_at"),
+                "line_count": line_count,
+                "truncated": True,
+            }
+        files = optimized_files
+    else:
+        files = {}
+
     result = {
         "todos": list(todos)[:20] if todos else [],
-        "files": values.get("files") or {},
+        "files": files,
     }
 
     return result
@@ -382,6 +401,8 @@ async def stream_agent_chat(
 
         full_msg = None
         accumulated_content = []
+        tool_state_event_count = 0
+        last_tool_state_emit_at = 0.0
         async for msg, metadata in agent.stream_messages(messages, input_context=input_context):
             if isinstance(msg, AIMessageChunk):
                 accumulated_content.append(msg.content)
@@ -401,10 +422,20 @@ async def stream_agent_chat(
 
                 try:
                     if msg_dict.get("type") == "tool":
+                        tool_state_event_count += 1
+                        now_ts = asyncio.get_event_loop().time()
+                        should_emit_state = tool_state_event_count % 3 == 0 or (now_ts - last_tool_state_emit_at) >= 1.5
+                        if not should_emit_state:
+                            continue
+                        last_tool_state_emit_at = now_ts
                         if state_graph is None:
                             state_graph = await agent.get_graph()
                         state = await state_graph.aget_state(langgraph_config)
-                        agent_state = extract_agent_state(getattr(state, "values", {})) if state else {}
+                        agent_state = (
+                            extract_agent_state(getattr(state, "values", {}), include_attachment_content=False)
+                            if state
+                            else {}
+                        )
                         if agent_state:
                             yield make_chunk(status="agent_state", agent_state=agent_state, meta=meta)
                 except Exception as e:
@@ -428,7 +459,9 @@ async def stream_agent_chat(
         meta["time_cost"] = asyncio.get_event_loop().time() - start_time
         try:
             state = await state_graph.aget_state(langgraph_config) if state_graph else None
-            agent_state = extract_agent_state(getattr(state, "values", {})) if state else {}
+            agent_state = (
+                extract_agent_state(getattr(state, "values", {}), include_attachment_content=False) if state else {}
+            )
         except Exception:
             agent_state = {}
 

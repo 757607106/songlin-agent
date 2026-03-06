@@ -95,8 +95,24 @@ class DeepAgent(BaseAgent):
 
         research_sub_agent = _get_research_sub_agent(search_tools)
         research_sub_agent["model"] = model
+        research_sub_agent["middleware"] = [
+            RuntimeConfigMiddleware(
+                extra_tools=all_mcp_tools,
+                enable_model_override=False,
+                enable_system_prompt_override=False,
+                enable_tools_override=True,
+            )
+        ]
         critique_sub_agent = _get_critique_sub_agent(search_tools)
         critique_sub_agent["model"] = model
+        critique_sub_agent["middleware"] = [
+            RuntimeConfigMiddleware(
+                extra_tools=all_mcp_tools,
+                enable_model_override=False,
+                enable_system_prompt_override=False,
+                enable_tools_override=True,
+            )
+        ]
 
         # 关键说明：这里改为官方 create_deep_agent 入口，子agent通过 subagents 参数注册。
         # 这样与 reporter 的 deep-agent 化方案一致，维护成本更低。

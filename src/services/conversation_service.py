@@ -2,7 +2,6 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, UploadFile
-from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents import agent_manager
@@ -33,15 +32,16 @@ def _make_attachment_path(file_name: str) -> str:
     统一使用 .md 扩展名，因为文件内容已经是 Markdown 格式
     """
     # 提取不带扩展名的部分
-    base_name = file_name
-    for ext in [".docx", ".txt", ".html", ".htm", ".pdf", ".md"]:
-        if file_name.lower().endswith(ext):
-            base_name = file_name[: -len(ext)]
-            break
+    base_name = uuid.uuid4().hex
+    if file_name:
+        base_name = file_name.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        if "." in base_name:
+            base_name = base_name.rsplit(".", 1)[0]
+        base_name = base_name or uuid.uuid4().hex
 
-    # 替换路径分隔符
     safe_name = base_name.replace("/", "_").replace("\\", "_")
-    return f"/attachments/{safe_name}.md"
+    suffix = uuid.uuid4().hex[:8]
+    return f"/attachments/{safe_name}_{suffix}.md"
 
 
 def _build_state_files(attachments: list[dict]) -> dict:
@@ -98,15 +98,18 @@ async def _sync_thread_attachment_state(
         attachment_files = _build_state_files(attachments)
         merged_files.update(attachment_files)
 
-        # 使用 Command 确保 reducer 被正确应用
+        as_node = "__start__"
+        graph_nodes = getattr(graph, "nodes", None)
+        if isinstance(graph_nodes, dict) and graph_nodes and as_node not in graph_nodes:
+            as_node = next(iter(graph_nodes.keys()))
+
         await graph.aupdate_state(
             config=config,
-            values=Command(
-                update={
-                    "attachments": attachments,
-                    "files": merged_files,
-                }
-            ),
+            values={
+                "attachments": attachments,
+                "files": merged_files,
+            },
+            as_node=as_node,
         )
     except Exception as e:
         logger.warning(f"Failed to sync attachment state for thread {thread_id}: {e}")
@@ -253,7 +256,7 @@ async def upload_thread_attachment_view(
             data=file_content,
             content_type=conversion.file_type or "application/octet-stream",
         )
-        minio_url = result.public_url
+        minio_url = result.url
         logger.info(f"Uploaded attachment to MinIO: {object_name}")
     except Exception as e:
         logger.error(f"Failed to upload attachment to MinIO: {e}")

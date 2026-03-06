@@ -49,7 +49,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import MessageInputComponent from '@/components/MessageInputComponent.vue'
 import ImagePreviewComponent from '@/components/ImagePreviewComponent.vue'
@@ -114,7 +114,7 @@ const handleAttachmentUpload = async (files) => {
   if (!threadId) {
     try {
       threadId = await props.ensureThread(preferredTitle)
-    } catch (e) {
+    } catch {
       return
     }
   }
@@ -124,21 +124,45 @@ const handleAttachmentUpload = async (files) => {
     return
   }
 
-  try {
-    const hide = message.loading({
-      content: '正在上传附件...',
-      key: 'upload-attachment',
-      duration: 0
-    })
-    for (const file of files) {
+  const hide = message.loading({
+    content: '正在上传附件...',
+    key: 'upload-attachment',
+    duration: 0
+  })
+
+  let successCount = 0
+  const failed = []
+  for (const file of files) {
+    try {
       await threadApi.uploadThreadAttachment(threadId, file)
+      successCount += 1
+    } catch (error) {
+      failed.push(error)
     }
-    message.success({ content: '附件上传成功', key: 'upload-attachment', duration: 2 })
-    emit('attachment-changed', threadId)
-  } catch (error) {
-    message.destroy('upload-attachment')
-    handleChatError(error, 'upload')
   }
+
+  if (successCount > 0) {
+    emit('attachment-changed', threadId)
+  }
+
+  if (failed.length === 0) {
+    message.success({
+      content: `附件上传成功（${successCount}/${files.length}）`,
+      key: 'upload-attachment',
+      duration: 2
+    })
+  } else if (successCount > 0) {
+    message.warning({
+      content: `部分附件上传失败（成功 ${successCount}，失败 ${failed.length}）`,
+      key: 'upload-attachment',
+      duration: 3
+    })
+  } else {
+    message.destroy('upload-attachment')
+    handleChatError(failed[0].reason, 'upload')
+  }
+
+  hide?.()
 }
 
 const handleImageUpload = (imageData) => {
