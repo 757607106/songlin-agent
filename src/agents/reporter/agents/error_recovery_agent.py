@@ -7,7 +7,7 @@ from typing import Any
 from langchain.agents import create_agent
 
 
-def _build_error_system_prompt() -> str:
+def build_error_recovery_system_prompt() -> str:
     return """你是错误恢复子agent，只负责定位错误并给出可执行恢复方案。
 
 目标：
@@ -43,6 +43,6 @@ def create_error_recovery_agent(model, tools: list) -> Any:
     return create_agent(
         model=model,
         tools=tools,
-        system_prompt=_build_error_system_prompt(),
+        system_prompt=build_error_recovery_system_prompt(),
         name="error_recovery_agent",
     )

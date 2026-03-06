@@ -7,8 +7,8 @@ from typing import Any
 from langchain.agents import create_agent
 
 
-def create_analysis_agent(model, tools: list, system_prompt: str) -> Any:
-    prompt = (
+def build_analysis_system_prompt(system_prompt: str) -> str:
+    return (
         (system_prompt or "").strip()
         or """你是结果分析子agent，负责将查询结果转化为业务洞察。
 
@@ -19,9 +19,12 @@ def create_analysis_agent(model, tools: list, system_prompt: str) -> Any:
 - risks: 风险与不确定性
 - next_actions: 下一步建议"""
     )
+
+
+def create_analysis_agent(model, tools: list, system_prompt: str) -> Any:
     return create_agent(
         model=model,
         tools=tools,
-        system_prompt=prompt,
+        system_prompt=build_analysis_system_prompt(system_prompt),
         name="analysis_agent",
     )

@@ -12,4 +12,3 @@ async def test_reporter_supervisor_graph_builds():
     agent = SqlReporterAgent()
     graph = await agent.get_graph()
     assert graph is not None
-

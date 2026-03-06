@@ -3,6 +3,7 @@
 从 graph.py 中分离出来，通过数据源连接绑定数据库。
 """
 
+import os
 from dataclasses import dataclass, field
 from typing import Annotated
 
@@ -100,6 +101,23 @@ ANALYSIS_PROMPT = """你是数据报表分析智能体，负责对 SQL 执行结
 - 如果用户指定行业口径，严格按用户口径分析"""
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw.strip())
+    except Exception:
+        return default
+
+
 @dataclass(kw_only=True)
 class ReporterContext(BaseContext):
     """数据报表助手的可配置上下文"""
@@ -145,5 +163,45 @@ class ReporterContext(BaseContext):
         metadata={
             "name": "指定技能ID",
             "description": "可选。为空时加载当前数据源下全部已发布 Skills；填写后只加载指定技能。",
+        },
+    )
+
+    enable_interrupt_on: bool = field(
+        default_factory=lambda: _env_flag("REPORTER_ENABLE_INTERRUPT_ON", False),
+        metadata={
+            "name": "启用人工审批",
+            "description": "开启后对高风险工具启用人工审批中断。",
+        },
+    )
+
+    interrupt_on_db_execute_query: bool = field(
+        default_factory=lambda: _env_flag("REPORTER_INTERRUPT_ON_DB_EXECUTE_QUERY", True),
+        metadata={
+            "name": "执行SQL需审批",
+            "description": "开启后执行SQL前必须人工审批。",
+        },
+    )
+
+    interrupt_on_save_query_history: bool = field(
+        default_factory=lambda: _env_flag("REPORTER_INTERRUPT_ON_SAVE_QUERY_HISTORY", False),
+        metadata={
+            "name": "保存SQL历史需审批",
+            "description": "开启后保存查询历史前必须人工审批。",
+        },
+    )
+
+    interrupt_on_auto_fix_sql_error: bool = field(
+        default_factory=lambda: _env_flag("REPORTER_INTERRUPT_ON_AUTO_FIX_SQL_ERROR", False),
+        metadata={
+            "name": "自动修复SQL需审批",
+            "description": "开启后自动修复SQL前必须人工审批。",
+        },
+    )
+
+    graph_retry_attempts: int = field(
+        default_factory=lambda: _env_int("REPORTER_GRAPH_RETRY_ATTEMPTS", 2),
+        metadata={
+            "name": "图构建重试次数",
+            "description": "用于 reporter 工具装配和 MCP 拉取重试。",
         },
     )

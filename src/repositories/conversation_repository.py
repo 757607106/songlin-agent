@@ -4,7 +4,7 @@
 
 import uuid as uuid_lib
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -196,18 +196,89 @@ class ConversationRepository:
         return await self.get_messages(conversation.id, limit, offset)
 
     async def list_conversations(
-        self, user_id: str | None = None, agent_id: str | None = None, status: str = "active"
+        self,
+        user_id: str | None = None,
+        agent_id: str | None = None,
+        status: str = "active",
+        runtime_status: str | list[str] | None = None,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[Conversation]:
         query = select(Conversation).where(Conversation.status == status)
+        expected_runtime_statuses: set[str] | None = None
 
         if user_id:
             query = query.where(Conversation.user_id == str(user_id))
         if agent_id:
             query = query.where(Conversation.agent_id == agent_id)
 
+        if runtime_status not in (None, "", "all"):
+            if isinstance(runtime_status, list):
+                expected_runtime_statuses = set(runtime_status)
+            else:
+                expected_runtime_statuses = {runtime_status}
+            bind = self.db.get_bind()
+            if bind is not None and bind.dialect.name == "postgresql":
+                runtime_status_expr = func.coalesce(Conversation.extra_metadata.op("->>")("runtime_status"), "idle")
+                query = query.where(runtime_status_expr.in_(expected_runtime_statuses))
+
         query = query.order_by(Conversation.updated_at.desc())
+        if limit is not None:
+            query = query.limit(limit)
+        if offset > 0:
+            query = query.offset(offset)
         result = await self.db.execute(query)
-        return list(result.scalars().all())
+        conversations = list(result.scalars().all())
+
+        if runtime_status not in (None, "", "all") and expected_runtime_statuses is not None:
+            bind = self.db.get_bind()
+            if bind is not None and bind.dialect.name == "postgresql":
+                return conversations
+            conversations = [
+                conv
+                for conv in conversations
+                if (conv.extra_metadata or {}).get("runtime_status", "idle") in expected_runtime_statuses
+            ]
+            if offset > 0:
+                conversations = conversations[offset:]
+            if limit is not None:
+                conversations = conversations[:limit]
+
+        return conversations
+
+    async def get_latest_messages_by_conversation_ids(self, conversation_ids: list[int]) -> dict[int, Message]:
+        if not conversation_ids:
+            return {}
+
+        latest_time_subquery = (
+            select(
+                Message.conversation_id.label("conversation_id"),
+                func.max(Message.created_at).label("latest_created_at"),
+            )
+            .where(Message.conversation_id.in_(conversation_ids))
+            .group_by(Message.conversation_id)
+            .subquery()
+        )
+
+        query = (
+            select(Message)
+            .join(
+                latest_time_subquery,
+                and_(
+                    Message.conversation_id == latest_time_subquery.c.conversation_id,
+                    Message.created_at == latest_time_subquery.c.latest_created_at,
+                ),
+            )
+            .order_by(Message.conversation_id.asc(), Message.id.desc())
+        )
+        result = await self.db.execute(query)
+        messages = list(result.scalars().all())
+
+        latest_messages: dict[int, Message] = {}
+        for message in messages:
+            if message.conversation_id not in latest_messages:
+                latest_messages[message.conversation_id] = message
+        return latest_messages
 
     async def update_conversation(
         self,

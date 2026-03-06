@@ -7,7 +7,7 @@ from typing import Any
 from langchain.agents import create_agent
 
 
-def _build_clarification_prompt() -> str:
+def build_clarification_system_prompt() -> str:
     return """你是业务澄清子agent，只负责业务口径澄清，不做 SQL 生成与执行。
 
 阶段目标：
@@ -36,6 +36,6 @@ def create_clarification_agent(model, tools: list) -> Any:
     return create_agent(
         model=model,
         tools=tools,
-        system_prompt=_build_clarification_prompt(),
+        system_prompt=build_clarification_system_prompt(),
         name="clarification_agent",
     )

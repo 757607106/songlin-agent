@@ -115,6 +115,7 @@ make local-api
 
 ```bash
 POSTGRES_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/yuxi_know \
+CHECKPOINTER_POSTGRES_URL=postgresql://postgres:postgres@localhost:5432/yuxi_know \
 NEO4J_URI=bolt://localhost:7687 \
 MILVUS_URI=http://localhost:19530 \
 MINIO_URI=http://localhost:9000 \
@@ -265,6 +266,7 @@ make local-web
 
 ```bash
 POSTGRES_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/yuxi_know
+CHECKPOINTER_POSTGRES_URL=postgresql://postgres:postgres@localhost:5432/yuxi_know
 NEO4J_URI=bolt://localhost:7687
 MILVUS_URI=http://localhost:19530
 MINIO_URI=http://localhost:9000
@@ -750,4 +752,3 @@ make local-web
    ```
 
 如果问题仍未解决，参考本文档的"故障排查"部分或相关文档。
-

@@ -57,6 +57,7 @@ local-deps:
 
 local-api: local-deps
 	POSTGRES_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/yuxi_know \
+	CHECKPOINTER_POSTGRES_URL=postgresql://postgres:postgres@localhost:5432/yuxi_know \
 	NEO4J_URI=bolt://localhost:7687 \
 	MILVUS_URI=http://localhost:19530 \
 	MINIO_URI=http://localhost:9000 \

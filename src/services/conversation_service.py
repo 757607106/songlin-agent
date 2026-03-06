@@ -26,6 +26,36 @@ async def require_user_conversation(conv_repo: ConversationRepository, thread_id
     return conversation
 
 
+def _to_public_runtime_status(runtime_status: str | None) -> str:
+    normalized_status = runtime_status or "idle"
+    if normalized_status == "running":
+        return "busy"
+    if normalized_status == "waiting_for_human":
+        return "interrupted"
+    if normalized_status in {"completed", "idle"}:
+        return "idle"
+    if normalized_status == "error":
+        return "error"
+    return "unknown"
+
+
+def _to_internal_runtime_status_filter(runtime_status: str | None) -> str | list[str] | None:
+    if runtime_status in (None, "", "all"):
+        return None
+    normalized_status = str(runtime_status).strip()
+    if normalized_status == "busy":
+        return "running"
+    if normalized_status == "interrupted":
+        return "waiting_for_human"
+    if normalized_status == "idle":
+        return ["idle", "completed"]
+    if normalized_status == "error":
+        return "error"
+    if normalized_status in {"running", "waiting_for_human", "completed"}:
+        return normalized_status
+    return None
+
+
 def _make_attachment_path(file_name: str) -> str:
     """生成附件在文件系统中的路径（无需 thread_id，state 已隔离）
 
@@ -152,6 +182,11 @@ async def create_thread_view(
         "user_id": conversation.user_id,
         "agent_id": conversation.agent_id,
         "title": conversation.title,
+        "last_message": "",
+        "runtime_status": "idle",
+        "status_updated_at": conversation.updated_at.isoformat(),
+        "has_interrupt": False,
+        "is_loading": False,
         "created_at": conversation.created_at.isoformat(),
         "updated_at": conversation.updated_at.isoformat(),
     }
@@ -162,16 +197,24 @@ async def list_threads_view(
     agent_id: str,
     db: AsyncSession,
     current_user_id: str,
+    runtime_status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
 ) -> list[dict]:
     if not agent_id:
         raise HTTPException(status_code=422, detail="agent_id 不能为空")
 
     conv_repo = ConversationRepository(db)
+    runtime_status_filter = _to_internal_runtime_status_filter(runtime_status)
     conversations = await conv_repo.list_conversations(
         user_id=str(current_user_id),
         agent_id=agent_id,
         status="active",
+        runtime_status=runtime_status_filter,
+        limit=limit,
+        offset=offset,
     )
+    latest_message_map = await conv_repo.get_latest_messages_by_conversation_ids([conv.id for conv in conversations])
 
     return [
         {
@@ -179,6 +222,13 @@ async def list_threads_view(
             "user_id": conv.user_id,
             "agent_id": conv.agent_id,
             "title": conv.title,
+            "last_message": (latest_message_map.get(conv.id).content if latest_message_map.get(conv.id) else ""),
+            "runtime_status": _to_public_runtime_status((conv.extra_metadata or {}).get("runtime_status", "idle")),
+            "status_updated_at": (conv.extra_metadata or {}).get("status_updated_at", conv.updated_at.isoformat()),
+            "has_interrupt": _to_public_runtime_status((conv.extra_metadata or {}).get("runtime_status", "idle"))
+            == "interrupted",
+            "is_loading": _to_public_runtime_status((conv.extra_metadata or {}).get("runtime_status", "idle"))
+            == "busy",
             "created_at": conv.created_at.isoformat(),
             "updated_at": conv.updated_at.isoformat(),
         }
@@ -217,6 +267,15 @@ async def update_thread_view(
         "user_id": updated_conv.user_id,
         "agent_id": updated_conv.agent_id,
         "title": updated_conv.title,
+        "last_message": "",
+        "runtime_status": _to_public_runtime_status((updated_conv.extra_metadata or {}).get("runtime_status", "idle")),
+        "status_updated_at": (updated_conv.extra_metadata or {}).get(
+            "status_updated_at", updated_conv.updated_at.isoformat()
+        ),
+        "has_interrupt": _to_public_runtime_status((updated_conv.extra_metadata or {}).get("runtime_status", "idle"))
+        == "interrupted",
+        "is_loading": _to_public_runtime_status((updated_conv.extra_metadata or {}).get("runtime_status", "idle"))
+        == "busy",
         "created_at": updated_conv.created_at.isoformat(),
         "updated_at": updated_conv.updated_at.isoformat(),
     }

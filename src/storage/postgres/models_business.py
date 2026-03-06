@@ -115,6 +115,20 @@ class User(Base):
         remaining = int((self.login_locked_until - utc_now_naive()).total_seconds())
         return max(0, remaining)
 
+    def calculate_lock_duration(self) -> int:
+        if self.login_failed_count < 10:
+            return 0
+        wait_seconds = 2 ** (self.login_failed_count - 10)
+        max_seconds = 365 * 24 * 60 * 60
+        return min(wait_seconds, max_seconds)
+
+    def increment_failed_login(self):
+        self.login_failed_count += 1
+        self.last_failed_login = utc_now_naive()
+        lock_duration = self.calculate_lock_duration()
+        if lock_duration > 0:
+            self.login_locked_until = utc_now_naive() + dt.timedelta(seconds=lock_duration)
+
     def reset_failed_login(self):
         """重置登录失败相关字段"""
         self.login_failed_count = 0
@@ -461,6 +475,17 @@ class MCPServer(Base):
         if self.disabled_tools:
             config["disabled_tools"] = self.disabled_tools
         return config
+
+
+class LoginRateLimitAttempt(Base):
+    __tablename__ = "login_rate_limit_attempts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    client_ip = Column(String(64), nullable=False, index=True)
+    endpoint = Column(String(128), nullable=False, index=True)
+    attempted_at = Column(DateTime, default=utc_now_naive, nullable=False, index=True)
+
+    __table_args__ = (Index("idx_login_rate_limit_attempts_ip_endpoint_time", "client_ip", "endpoint", "attempted_at"),)
 
 
 class TaskRecord(Base):

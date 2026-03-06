@@ -12,6 +12,15 @@ class AgentManager(metaclass=SingletonMeta):
     def __init__(self):
         self._classes = {}
         self._instances = {}  # 存储已创建的 agent 实例
+        self._shared_checkpointer = None  # 共享 checkpointer 实例
+
+    def set_shared_checkpointer(self, checkpointer):
+        """设置共享 checkpointer 并注入到所有已创建的 Agent 实例"""
+        self._shared_checkpointer = checkpointer
+        if checkpointer is not None:
+            for agent in self._instances.values():
+                agent.checkpointer = checkpointer
+            logger.info(f"Shared checkpointer injected to {len(self._instances)} agents")
 
     def register_agent(self, agent_class):
         self._classes[agent_class.__name__] = agent_class
@@ -21,10 +30,17 @@ class AgentManager(metaclass=SingletonMeta):
             self.get_agent(agent_id)
 
     def get_agent(self, agent_id, reload=False, reload_graph=False, **kwargs):
+        if agent_id not in self._classes:
+            logger.warning(f"智能体不存在: {agent_id}")
+            return None
         # 检查是否已经创建了该 agent 的实例
         if reload or agent_id not in self._instances:
             agent_class = self._classes[agent_id]
-            self._instances[agent_id] = agent_class()
+            agent_instance = agent_class()
+            # 如果已有共享 checkpointer，直接注入
+            if self._shared_checkpointer is not None:
+                agent_instance.checkpointer = self._shared_checkpointer
+            self._instances[agent_id] = agent_instance
 
         # 如果仅需要重新加载 graph，则清空 graph 缓存
         if reload_graph and agent_id in self._instances:

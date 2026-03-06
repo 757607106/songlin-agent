@@ -7,7 +7,7 @@ from typing import Any
 from langchain.agents import create_agent
 
 
-def _build_sample_system_prompt() -> str:
+def build_sample_retrieval_system_prompt() -> str:
     return """你是 sample_retrieval 阶段子agent，只负责样本检索与筛选，不生成 SQL。
 
 阶段目标：
@@ -40,6 +40,6 @@ def create_sample_retrieval_agent(model, tools: list) -> Any:
     return create_agent(
         model=model,
         tools=tools,
-        system_prompt=_build_sample_system_prompt(),
+        system_prompt=build_sample_retrieval_system_prompt(),
         name="sample_retrieval_agent",
     )

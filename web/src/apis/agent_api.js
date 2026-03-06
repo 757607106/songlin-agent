@@ -233,8 +233,19 @@ export const threadApi = {
    * @param {string} agentId - 智能体ID
    * @returns {Promise} - 对话线程列表
    */
-  getThreads: (agentId) => {
-    const url = `/api/chat/threads?agent_id=${agentId}`
+  getThreads: (agentId, params = {}) => {
+    const query = new URLSearchParams()
+    query.append('agent_id', agentId)
+    if (params.runtimeStatus && params.runtimeStatus !== 'all') {
+      query.append('runtime_status', params.runtimeStatus)
+    }
+    if (Number.isFinite(params.limit) && params.limit > 0) {
+      query.append('limit', String(params.limit))
+    }
+    if (Number.isFinite(params.offset) && params.offset >= 0) {
+      query.append('offset', String(params.offset))
+    }
+    const url = `/api/chat/threads?${query.toString()}`
     return apiGet(url)
   },
 

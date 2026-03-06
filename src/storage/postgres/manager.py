@@ -50,13 +50,20 @@ class PostgresManager(metaclass=SingletonMeta):
             return
 
         try:
+            pool_size = int(os.getenv("POSTGRES_POOL_SIZE", "20"))
+            max_overflow = int(os.getenv("POSTGRES_MAX_OVERFLOW", "40"))
+            pool_timeout = int(os.getenv("POSTGRES_POOL_TIMEOUT", "30"))
+            pool_recycle = int(os.getenv("POSTGRES_POOL_RECYCLE", "1800"))
             # 创建异步 SQLAlchemy 引擎
             self.async_engine = create_async_engine(
                 db_url,
                 json_serializer=lambda obj: json.dumps(obj, ensure_ascii=False),
                 json_deserializer=json.loads,
                 pool_pre_ping=True,
-                pool_recycle=1800,
+                pool_size=max(1, pool_size),
+                max_overflow=max(0, max_overflow),
+                pool_timeout=max(1, pool_timeout),
+                pool_recycle=max(60, pool_recycle),
             )
 
             # 创建异步会话工厂

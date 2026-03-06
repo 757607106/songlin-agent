@@ -90,9 +90,7 @@ class SkillGenerationService:
         selected_table_brief = []
         for table in selected_tables[:8]:
             cols = [
-                str(col.get("column_name", ""))
-                for col in (table.get("columns") or [])[:10]
-                if col.get("column_name")
+                str(col.get("column_name", "")) for col in (table.get("columns") or [])[:10] if col.get("column_name")
             ]
             selected_table_brief.append(
                 {

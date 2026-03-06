@@ -8,11 +8,13 @@
       :single-mode="props.singleMode"
       :agents="agents"
       :selected-agent-id="currentAgentId"
+      :runtime-status-filter="threadListRuntimeStatus"
       :is-creating-new-chat="chatUIStore.creatingNewChat"
       @create-chat="createNewChat"
       @select-chat="selectChat"
       @delete-chat="deleteChat"
       @rename-chat="renameChat"
+      @runtime-status-change="handleRuntimeStatusChange"
       @toggle-sidebar="toggleSidebar"
       @open-agent-modal="openAgentModal"
       :class="{
@@ -107,8 +109,10 @@
               :visible="approvalState.showModal"
               :question="approvalState.question"
               :operation="approvalState.operation"
+              :can-edit="approvalState.allowedDecisions.includes('edit')"
               @approve="handleApprove"
               @reject="handleReject"
+              @edit="handleEdit"
             />
 
             <div class="message-input-wrapper">
@@ -270,11 +274,13 @@ const chatState = reactive({
 // 组件级别的线程和消息状态
 const threads = ref([])
 const threadMessages = ref({})
+const threadListRuntimeStatus = ref('all')
 
 // 本地 UI 状态（仅在本组件使用）
 const localUIState = reactive({
   isInitialRender: true
 })
+let threadStatusSyncTimer = null
 
 // Mention resources
 const availableKnowledgeBases = ref([])
@@ -500,8 +506,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   scrollController.cleanup()
-  // 清理所有线程状态
-  resetOnGoingConv()
+  if (threadStatusSyncTimer) {
+    clearInterval(threadStatusSyncTimer)
+    threadStatusSyncTimer = null
+  }
 })
 
 // ==================== THREAD STATE MANAGEMENT ====================
@@ -568,7 +576,11 @@ const fetchThreads = async (agentId = null) => {
 
   chatUIStore.isLoadingThreads = true
   try {
-    const fetchedThreads = await threadApi.getThreads(targetAgentId)
+    const fetchedThreads = await threadApi.getThreads(targetAgentId, {
+      runtimeStatus: threadListRuntimeStatus.value,
+      limit: 100,
+      offset: 0
+    })
     threads.value = fetchedThreads || []
   } catch (error) {
     console.error('Failed to fetch threads:', error)
@@ -692,7 +704,9 @@ const fetchAgentState = async (agentId, threadId) => {
       const newTs = getThreadState(threadId)
       if (newTs) newTs.agentState = res.agent_state || null
     }
-  } catch (error) {}
+  } catch {
+    return
+  }
 }
 
 const fetchMentionResources = async () => {
@@ -716,8 +730,8 @@ const ensureActiveThread = async (title = '新的对话') => {
       chatState.currentThreadId = newThread.id
       return newThread.id
     }
-  } catch (error) {
-    // createThread 已处理错误提示
+  } catch {
+    return null
   }
   return null
 }
@@ -816,18 +830,8 @@ const createNewChat = async () => {
   try {
     const newThread = await createThread(currentAgentId.value, '新的对话')
     if (newThread) {
-      // 中断之前线程的流式输出（如果存在）
-      const previousThreadId = chatState.currentThreadId
-      if (previousThreadId) {
-        const previousThreadState = getThreadState(previousThreadId)
-        if (previousThreadState?.isStreaming && previousThreadState.streamAbortController) {
-          previousThreadState.streamAbortController.abort()
-          previousThreadState.isStreaming = false
-          previousThreadState.streamAbortController = null
-        }
-      }
-
       chatState.currentThreadId = newThread.id
+      void fetchThreads(currentAgentId.value).catch(() => {})
     }
   } catch (error) {
     handleChatError(error, 'create')
@@ -845,17 +849,6 @@ const selectChat = async (chatId) => {
     )
   )
     return
-
-  // 中断之前线程的流式输出（如果存在）
-  const previousThreadId = chatState.currentThreadId
-  if (previousThreadId && previousThreadId !== chatId) {
-    const previousThreadState = getThreadState(previousThreadId)
-    if (previousThreadState?.isStreaming && previousThreadState.streamAbortController) {
-      previousThreadState.streamAbortController.abort()
-      previousThreadState.isStreaming = false
-      previousThreadState.streamAbortController = null
-    }
-  }
 
   chatState.currentThreadId = chatId
   chatUIStore.isLoadingMessages = true
@@ -966,6 +959,7 @@ const handleSendMessage = async ({ image } = {}) => {
       // 历史记录加载完成后，安全地清空当前进行中的对话
       resetOnGoingConv(threadId)
       scrollController.scrollToBottom()
+      void fetchThreads(currentAgentId.value).catch(() => {})
     })
   }
 }
@@ -982,6 +976,7 @@ const handleSendOrStop = async (payload) => {
     try {
       await fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId })
       message.info('已中断对话生成')
+      void fetchThreads(currentAgentId.value).catch(() => {})
     } catch (error) {
       console.error('刷新消息历史失败:', error)
       message.info('已中断对话生成')
@@ -992,7 +987,7 @@ const handleSendOrStop = async (payload) => {
 }
 
 // ==================== 人工审批处理 ====================
-const handleApprovalWithStream = async (approved) => {
+const handleApprovalWithStream = async (decision, editedText = '') => {
   console.log('🔄 [STREAM] Starting resume stream processing')
 
   const threadId = approvalState.threadId
@@ -1012,9 +1007,10 @@ const handleApprovalWithStream = async (approved) => {
   try {
     // 使用审批 composable 处理审批
     const response = await handleApproval(
-      approved,
+      decision,
       currentAgentId.value,
-      selectedAgentConfigId.value
+      selectedAgentConfigId.value,
+      editedText
     )
 
     if (!response) return // 如果 handleApproval 抛出错误，这里不会执行
@@ -1045,16 +1041,26 @@ const handleApprovalWithStream = async (approved) => {
       // 历史记录加载完成后，安全地清空当前进行中的对话
       resetOnGoingConv(threadId)
       scrollController.scrollToBottom()
+      void fetchThreads(currentAgentId.value).catch(() => {})
     })
   }
 }
 
 const handleApprove = () => {
-  handleApprovalWithStream(true)
+  handleApprovalWithStream('approve')
 }
 
 const handleReject = () => {
-  handleApprovalWithStream(false)
+  handleApprovalWithStream('reject')
+}
+
+const handleEdit = () => {
+  const editedText = window.prompt('请输入编辑后的审批内容', approvalState.operation || '')
+  if (editedText === null) {
+    approvalState.showModal = true
+    return
+  }
+  handleApprovalWithStream('edit', editedText)
 }
 
 // 处理示例问题点击
@@ -1094,6 +1100,11 @@ const toggleSidebar = () => {
   chatUIStore.toggleSidebar()
 }
 const openAgentModal = () => emit('open-agent-modal')
+
+const handleRuntimeStatusChange = async (runtimeStatus) => {
+  threadListRuntimeStatus.value = runtimeStatus || 'all'
+  await loadChatsList()
+}
 
 const handleAgentStateRefresh = async (threadId = null) => {
   if (!currentAgentId.value) return
@@ -1228,6 +1239,13 @@ const initAll = async () => {
 onMounted(async () => {
   await initAll()
   scrollController.enableAutoScroll()
+  if (threadStatusSyncTimer) {
+    clearInterval(threadStatusSyncTimer)
+  }
+  threadStatusSyncTimer = setInterval(() => {
+    if (!currentAgentId.value || chatUIStore.isLoadingThreads) return
+    void fetchThreads(currentAgentId.value).catch(() => {})
+  }, 3000)
 })
 
 watch(
@@ -1237,8 +1255,6 @@ watch(
       // 清理当前线程状态
       chatState.currentThreadId = null
       threadMessages.value = {}
-      // 清理所有线程状态
-      resetOnGoingConv()
 
       if (newAgentId) {
         await loadChatsList()

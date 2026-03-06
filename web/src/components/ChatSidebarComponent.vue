@@ -17,16 +17,25 @@
         </div>
       </div>
       <div class="conversation-list-top">
-        <button
-          type="text"
-          @click="createNewChat"
-          class="new-chat-btn"
-          :disabled="chatUIStore.creatingNewChat"
-        >
-          <LoaderCircle v-if="chatUIStore.creatingNewChat" size="18" class="loading-icon" />
-          <MessageSquarePlus v-else size="18" />
-          创建新对话
-        </button>
+        <div class="top-actions">
+          <button
+            type="text"
+            @click="createNewChat"
+            class="new-chat-btn"
+            :disabled="chatUIStore.creatingNewChat"
+          >
+            <LoaderCircle v-if="chatUIStore.creatingNewChat" size="18" class="loading-icon" />
+            <MessageSquarePlus v-else size="18" />
+            创建新对话
+          </button>
+          <a-select
+            v-model:value="selectedRuntimeStatus"
+            class="status-filter"
+            size="small"
+            :options="runtimeStatusOptions"
+            @change="handleRuntimeStatusChange"
+          />
+        </div>
       </div>
       <div class="conversation-list">
         <template v-if="Object.keys(groupedChats).length > 0">
@@ -40,6 +49,9 @@
               @click="selectChat(chat)"
             >
               <div class="conversation-title">{{ chat.title || '新的对话' }}</div>
+              <div class="conversation-status">
+                <span class="status-dot" :class="statusClass(chat.runtime_status)"></span>
+              </div>
               <div class="actions-mask"></div>
               <div class="conversation-actions">
                 <a-dropdown :trigger="['click']" @click.stop>
@@ -76,7 +88,7 @@
 </template>
 
 <script setup>
-import { computed, h } from 'vue'
+import { computed, h, ref, watch } from 'vue'
 import { DeleteOutlined, EditOutlined, MoreOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import { PanelLeftClose, MessageSquarePlus, LoaderCircle } from 'lucide-vue-next'
@@ -119,6 +131,10 @@ const props = defineProps({
   selectedAgentId: {
     type: String,
     default: null
+  },
+  runtimeStatusFilter: {
+    type: String,
+    default: 'all'
   }
 })
 
@@ -128,57 +144,87 @@ const emit = defineEmits([
   'delete-chat',
   'rename-chat',
   'toggle-sidebar',
-  'open-agent-modal'
+  'open-agent-modal',
+  'runtime-status-change'
 ])
 
-const groupedChats = computed(() => {
-  const groups = {
-    今天: [],
-    七天内: [],
-    三十天内: []
-  }
+const runtimeStatusOptions = [
+  { label: '所有状态', value: 'all' },
+  { label: '空闲', value: 'idle' },
+  { label: '忙碌', value: 'busy' },
+  { label: '已中断', value: 'interrupted' },
+  { label: '错误', value: 'error' }
+]
 
-  // 确保使用北京时间进行比较
+const selectedRuntimeStatus = ref('all')
+
+watch(
+  () => props.runtimeStatusFilter,
+  (value) => {
+    selectedRuntimeStatus.value = value || 'all'
+  },
+  { immediate: true }
+)
+
+const handleRuntimeStatusChange = (value) => {
+  selectedRuntimeStatus.value = value
+  emit('runtime-status-change', value)
+}
+
+const statusClass = (status) => {
+  const normalized = status || 'idle'
+  if (normalized === 'busy') return 'is-busy'
+  if (normalized === 'interrupted') return 'is-interrupted'
+  if (normalized === 'error') return 'is-error'
+  if (normalized === 'idle') return 'is-idle'
+  return 'is-unknown'
+}
+
+const groupedChats = computed(() => {
+  const groups = {}
   const now = dayjs().tz('Asia/Shanghai')
   const today = now.startOf('day')
-  const sevenDaysAgo = now.subtract(7, 'day').startOf('day')
-  const thirtyDaysAgo = now.subtract(30, 'day').startOf('day')
-
-  // Sort chats by creation date, newest first
-  const sortedChats = [...props.chatsList].sort((a, b) => {
-    const dateA = parseToShanghai(b.created_at)
-    const dateB = parseToShanghai(a.created_at)
+  const yesterday = today.subtract(1, 'day')
+  const weekStart = today.subtract(7, 'day')
+  const filteredChats =
+    selectedRuntimeStatus.value === 'all'
+      ? props.chatsList
+      : props.chatsList.filter(
+          (chat) => (chat.runtime_status || 'idle') === selectedRuntimeStatus.value
+        )
+  const sortedChats = [...filteredChats].sort((a, b) => {
+    const dateA = parseToShanghai(a.updated_at || a.created_at)
+    const dateB = parseToShanghai(b.updated_at || b.created_at)
     if (!dateA || !dateB) return 0
-    return dateA.diff(dateB)
+    return dateB.diff(dateA)
   })
+  const normalizedAttentionChats = sortedChats.filter(
+    (chat) => (chat.runtime_status || 'idle') === 'interrupted'
+  )
+  if (normalizedAttentionChats.length > 0) {
+    groups['需要关注'] = normalizedAttentionChats
+  }
 
   sortedChats.forEach((chat) => {
-    // 将后端时间当作UTC时间处理，然后转换为北京时间
-    const chatDate = parseToShanghai(chat.created_at)
+    if ((chat.runtime_status || 'idle') === 'interrupted') return
+    const chatDate = parseToShanghai(chat.updated_at || chat.created_at)
     if (!chatDate) {
       return
     }
-    if (chatDate.isAfter(today)) {
+    if (chatDate.isAfter(today) || chatDate.isSame(today)) {
+      groups['今天'] = groups['今天'] || []
       groups['今天'].push(chat)
-    } else if (chatDate.isAfter(sevenDaysAgo)) {
-      groups['七天内'].push(chat)
-    } else if (chatDate.isAfter(thirtyDaysAgo)) {
-      groups['三十天内'].push(chat)
+    } else if (chatDate.isAfter(yesterday) || chatDate.isSame(yesterday)) {
+      groups['昨天'] = groups['昨天'] || []
+      groups['昨天'].push(chat)
+    } else if (chatDate.isAfter(weekStart)) {
+      groups['本周'] = groups['本周'] || []
+      groups['本周'].push(chat)
     } else {
-      const monthKey = chatDate.format('YYYY-MM')
-      if (!groups[monthKey]) {
-        groups[monthKey] = []
-      }
-      groups[monthKey].push(chat)
+      groups['更早'] = groups['更早'] || []
+      groups['更早'].push(chat)
     }
   })
-
-  // Remove empty groups
-  for (const key in groups) {
-    if (groups[key].length === 0) {
-      delete groups[key]
-    }
-  }
 
   return groups
 })
@@ -308,7 +354,12 @@ const toggleCollapse = () => {
 
   .conversation-list-top {
     padding: 8px 12px;
-    // border-bottom: 1px solid var(--gray-200);
+
+    .top-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
 
     .new-chat-btn {
       width: 100%;
@@ -338,6 +389,10 @@ const toggleCollapse = () => {
       .loading-icon {
         animation: spin 1s linear infinite;
       }
+    }
+
+    .status-filter {
+      width: 100%;
     }
   }
 
@@ -386,6 +441,41 @@ const toggleCollapse = () => {
         overflow: hidden;
         text-overflow: ellipsis;
         transition: color 0.2s ease;
+      }
+
+      .conversation-status {
+        width: 14px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin-right: 28px;
+
+        .status-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          display: inline-block;
+        }
+
+        .status-dot.is-idle {
+          background: #22c55e;
+        }
+
+        .status-dot.is-busy {
+          background: #3b82f6;
+        }
+
+        .status-dot.is-interrupted {
+          background: #f97316;
+        }
+
+        .status-dot.is-error {
+          background: #dc2626;
+        }
+
+        .status-dot.is-unknown {
+          background: #9ca3af;
+        }
       }
 
       .actions-mask {

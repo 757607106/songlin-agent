@@ -7,7 +7,7 @@ from typing import Any
 from langchain.agents import create_agent
 
 
-def _build_generator_system_prompt() -> str:
+def build_sql_generator_system_prompt() -> str:
     return """你是 sql_generation 阶段子agent，只负责生成 SQL，不做执行与图表。
 
 阶段目标：
@@ -39,6 +39,6 @@ def create_sql_generator_agent(model, tools: list) -> Any:
     return create_agent(
         model=model,
         tools=tools,
-        system_prompt=_build_generator_system_prompt(),
+        system_prompt=build_sql_generator_system_prompt(),
         name="sql_generator_agent",
     )

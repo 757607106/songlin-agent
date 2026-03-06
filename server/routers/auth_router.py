@@ -1,11 +1,13 @@
 import re
 import uuid
+import hashlib
+import os
 from src.utils import logger
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.storage.postgres.manager import pg_manager
@@ -106,6 +108,14 @@ async def get_default_department_id(db: AsyncSession) -> int | None:
     return default_dept.id if default_dept else None
 
 
+LOGIN_ADVISORY_LOCK_NAMESPACE = os.getenv("LOGIN_ADVISORY_LOCK_NAMESPACE", "login")
+
+
+def _advisory_lock_key(resource: str) -> int:
+    digest = hashlib.blake2b(resource.encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, byteorder="big", signed=True)
+
+
 # 路由：登录获取令牌
 # =============================================================================
 # === 认证分组 ===
@@ -114,17 +124,18 @@ async def get_default_department_id(db: AsyncSession) -> int | None:
 
 @auth.post("/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
-    # 查找用户 - 支持user_id和phone_number登录
     login_identifier = form_data.username  # OAuth2表单中的username字段作为登录标识符
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "postgresql":
+        lock_key = _advisory_lock_key(f"{LOGIN_ADVISORY_LOCK_NAMESPACE}:{login_identifier}")
+        await db.execute(text("SELECT pg_advisory_xact_lock(:lock_key)"), {"lock_key": lock_key})
 
-    # 尝试通过user_id查找
-    result = await db.execute(select(User).filter(User.user_id == login_identifier))
+    result = await db.execute(
+        select(User)
+        .where(or_(User.user_id == login_identifier, User.phone_number == login_identifier))
+        .with_for_update()
+    )
     user = result.scalar_one_or_none()
-
-    # 如果通过user_id没找到，尝试通过phone_number查找
-    if not user:
-        result = await db.execute(select(User).filter(User.phone_number == login_identifier))
-        user = result.scalar_one_or_none()
 
     # 如果用户不存在，为防止用户名枚举攻击，返回通用错误信息
     if not user:

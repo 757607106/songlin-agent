@@ -7,11 +7,8 @@ from typing import Any
 from langchain.agents import create_agent
 
 
-def create_sql_executor_agent(model, tools: list) -> Any:
-    return create_agent(
-        model=model,
-        tools=tools,
-        system_prompt="""你是 sql_execution 阶段子agent，只负责执行与结果汇总。
+def build_sql_executor_system_prompt() -> str:
+    return """你是 sql_execution 阶段子agent，只负责执行与结果汇总。
 
 阶段目标：
 1. 安全执行已通过校验的只读 SQL
@@ -33,6 +30,13 @@ def create_sql_executor_agent(model, tools: list) -> Any:
 禁止事项：
 - 不执行写操作 SQL
 - 不跳过 db_execute_query 直接写历史
-- 不重复调用同一工具。""",
+- 不重复调用同一工具。"""
+
+
+def create_sql_executor_agent(model, tools: list) -> Any:
+    return create_agent(
+        model=model,
+        tools=tools,
+        system_prompt=build_sql_executor_system_prompt(),
         name="sql_executor_agent",
     )

@@ -7,7 +7,7 @@ from typing import Any
 from langchain.agents import create_agent
 
 
-def _build_validator_system_prompt() -> str:
+def build_sql_validator_system_prompt() -> str:
     return """你是 SQL 校验子agent，只负责校验，不做生成与执行。
 
 目标：
@@ -38,6 +38,6 @@ def create_sql_validator_agent(model, tools: list) -> Any:
     return create_agent(
         model=model,
         tools=tools,
-        system_prompt=_build_validator_system_prompt(),
+        system_prompt=build_sql_validator_system_prompt(),
         name="sql_validator_agent",
     )

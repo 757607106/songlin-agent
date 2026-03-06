@@ -53,7 +53,8 @@ const props = defineProps({
 const emit = defineEmits(['upload', 'remove'])
 
 const extensionsText = computed(() => {
-  if (!props.limits?.allowed_extensions?.length) return 'txt / md / doc / docx / html / htm / json / csv / xls / xlsx / pdf / pptx / jpg / jpeg / png / bmp / tiff / tif / zip'
+  if (!props.limits?.allowed_extensions?.length)
+    return 'txt / md / doc / docx / html / htm / json / csv / xls / xlsx / pdf / pptx / jpg / jpeg / png / bmp / tiff / tif / zip'
   return props.limits.allowed_extensions.map((item) => item.replace('.', '')).join(' / ')
 })
 

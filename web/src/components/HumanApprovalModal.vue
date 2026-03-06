@@ -16,6 +16,9 @@
         <button class="btn btn-reject" @click="handleReject" :disabled="isProcessing">
           ✕ 拒绝
         </button>
+        <button v-if="canEdit" class="btn btn-edit" @click="handleEdit" :disabled="isProcessing">
+          ✎ 编辑
+        </button>
         <button class="btn btn-approve" @click="handleApprove" :disabled="isProcessing">
           ✓ 批准
         </button>
@@ -44,10 +47,14 @@ const props = defineProps({
   operation: {
     type: String,
     default: ''
+  },
+  canEdit: {
+    type: Boolean,
+    default: true
   }
 })
 
-const emit = defineEmits(['approve', 'reject'])
+const emit = defineEmits(['approve', 'reject', 'edit'])
 
 const isProcessing = ref(false)
 
@@ -71,6 +78,11 @@ const handleReject = () => {
   if (isProcessing.value) return
   isProcessing.value = true
   emit('reject')
+}
+
+const handleEdit = () => {
+  if (isProcessing.value) return
+  emit('edit')
 }
 </script>
 
@@ -168,6 +180,15 @@ const handleReject = () => {
 .btn-approve:hover:not(:disabled) {
   background: var(--main-700);
   box-shadow: 0 2px 6px rgba(59, 130, 246, 0.25);
+}
+
+.btn-edit {
+  background: var(--gray-100);
+  color: var(--gray-700);
+}
+
+.btn-edit:hover:not(:disabled) {
+  background: var(--gray-200);
 }
 
 .approval-processing {

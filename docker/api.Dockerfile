@@ -13,6 +13,7 @@ WORKDIR /app
 ENV TZ=Asia/Shanghai \
     UV_PROJECT_ENVIRONMENT="/usr/local" \
     UV_COMPILE_BYTECODE=1 \
+    UV_HTTP_TIMEOUT=300 \
     DEBIAN_FRONTEND=noninteractive
 
 RUN npm install -g npm@latest && npm cache clean --force

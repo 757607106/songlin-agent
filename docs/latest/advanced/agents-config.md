@@ -292,6 +292,26 @@ MYSQL_CHARSET=utf8mb4
 
 所有查询限定在只读范围（SELECT、SHOW、DESCRIBE、EXPLAIN），请求会经过表名校验与超时控制，默认限制 60 秒与 100 行输出，并可通过配置调整上限。连接信息会反馈给 LangGraph，智能体可以自动陈述数据库用途并选择更准确的检索策略。详见代码部分 `src/agents/common/toolkits/mysql/`
 
+### SqlReporterAgent 治理配置
+
+数据库报表助手新增了可在配置面板直接调整的治理项，对应 `ReporterContext` 字段：
+
+- `enable_interrupt_on`：启用人工审批总开关
+- `interrupt_on_db_execute_query`：执行 SQL 是否需要审批
+- `interrupt_on_save_query_history`：保存查询历史是否需要审批
+- `interrupt_on_auto_fix_sql_error`：自动修复 SQL 是否需要审批
+- `graph_retry_attempts`：构建图时工具装配与 MCP 拉取重试次数
+
+这些字段会随 `AgentConfig` 一起持久化；你也可以通过环境变量提供默认值：
+
+```env
+REPORTER_ENABLE_INTERRUPT_ON=0
+REPORTER_INTERRUPT_ON_DB_EXECUTE_QUERY=1
+REPORTER_INTERRUPT_ON_SAVE_QUERY_HISTORY=0
+REPORTER_INTERRUPT_ON_AUTO_FIX_SQL_ERROR=0
+REPORTER_GRAPH_RETRY_ATTEMPTS=2
+```
+
 ### 多模态图片支持
 
 系统支持接收图片作为输入，与文本结合形成多模态查询。图片支持的核心特性如下：

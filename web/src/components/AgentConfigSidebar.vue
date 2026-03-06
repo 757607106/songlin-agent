@@ -141,9 +141,9 @@
 
                 <!-- 布尔类型 -->
                 <a-switch
-                  v-else-if="typeof agentConfig[key] === 'boolean'"
-                  :checked="agentConfig[key]"
-                  @update:checked="(val) => agentStore.updateAgentConfig({ [key]: val })"
+                  v-else-if="isBooleanConfig(value)"
+                  :checked="coerceBoolean(agentConfig[key], value.default)"
+                  @update:checked="(val) => updateTypedConfigValue(key, val, value)"
                 />
 
                 <!-- 单选 -->
@@ -247,9 +247,9 @@
 
                 <!-- 数字 -->
                 <a-input-number
-                  v-else-if="value?.type === 'number'"
-                  :value="agentConfig[key]"
-                  @update:value="(val) => agentStore.updateAgentConfig({ [key]: val })"
+                  v-else-if="isNumericConfig(value)"
+                  :value="coerceNumber(agentConfig[key], value.default)"
+                  @update:value="(val) => updateTypedConfigValue(key, val, value)"
                   :placeholder="getPlaceholder(key, value)"
                   class="config-input-number"
                 />
@@ -510,6 +510,55 @@ const isListConfig = (key, value) => {
   return isTools || isList
 }
 
+const isBooleanConfig = (value) => {
+  return value?.type === 'bool' || typeof value?.default === 'boolean'
+}
+
+const isNumericConfig = (value) => {
+  return ['number', 'int', 'integer', 'float'].includes(value?.type)
+}
+
+const coerceBoolean = (val, fallback = false) => {
+  if (typeof val === 'boolean') return val
+  if (typeof val === 'string') {
+    const normalized = val.trim().toLowerCase()
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+    if (['0', 'false', 'no', 'off', ''].includes(normalized)) return false
+  }
+  return Boolean(fallback)
+}
+
+const coerceNumber = (val, fallback = 0) => {
+  if (typeof val === 'number' && Number.isFinite(val)) return val
+  const parsed = Number(val)
+  if (Number.isFinite(parsed)) return parsed
+  const fallbackParsed = Number(fallback)
+  return Number.isFinite(fallbackParsed) ? fallbackParsed : 0
+}
+
+const updateTypedConfigValue = (key, val, configItem) => {
+  if (isBooleanConfig(configItem)) {
+    agentStore.updateAgentConfig({
+      [key]: coerceBoolean(val, configItem?.default)
+    })
+    return
+  }
+  if (isNumericConfig(configItem)) {
+    const numericValue = coerceNumber(val, configItem?.default)
+    const normalizedValue =
+      configItem?.type === 'int' || configItem?.type === 'integer'
+        ? Math.trunc(numericValue)
+        : numericValue
+    agentStore.updateAgentConfig({
+      [key]: normalizedValue
+    })
+    return
+  }
+  agentStore.updateAgentConfig({
+    [key]: val
+  })
+}
+
 const getOptionValue = (option) => {
   if (typeof option === 'object' && option !== null) {
     return option.id || option.value || option.name
@@ -757,6 +806,14 @@ const validateAndFilterConfig = () => {
       if (validatedConfig[key].length !== currentValue.length) {
         console.warn(`配置项 ${key} 中包含无效的选项，已自动过滤`)
       }
+    } else if (isBooleanConfig(configItem)) {
+      validatedConfig[key] = coerceBoolean(currentValue, configItem.default)
+    } else if (isNumericConfig(configItem)) {
+      const numericValue = coerceNumber(currentValue, configItem.default)
+      validatedConfig[key] =
+        configItem.type === 'int' || configItem.type === 'integer'
+          ? Math.trunc(numericValue)
+          : numericValue
     }
   })
 

@@ -7,7 +7,7 @@ from typing import Any
 from langchain.agents import create_agent
 
 
-def _build_chart_system_prompt() -> str:
+def build_chart_system_prompt() -> str:
     return """你是 chart_generation 阶段子agent，只负责可视化决策与图表生成。
 
 阶段目标：
@@ -41,6 +41,6 @@ def create_chart_agent(model, tools: list) -> Any:
     return create_agent(
         model=model,
         tools=tools,
-        system_prompt=_build_chart_system_prompt(),
+        system_prompt=build_chart_system_prompt(),
         name="chart_generator_agent",
     )

@@ -7,11 +7,9 @@ from typing import Any
 from langchain.agents import create_agent
 
 
-def create_schema_agent(model, tools: list) -> Any:
-    tool_names = {getattr(tool, "name", "") for tool in tools}
-    simplified_mode = "db_describe_table" not in tool_names and "db_list_tables" not in tool_names
+def build_schema_system_prompt(simplified_mode: bool) -> str:
     if simplified_mode:
-        system_prompt = """你是 schema_analysis 阶段子agent，只负责 Schema 分析，不做 SQL 生成与执行。
+        return """你是 schema_analysis 阶段子agent，只负责 Schema 分析，不做 SQL 生成与执行。
 
 阶段目标：
 1. 识别用户问题涉及的实体与查询意图
@@ -34,8 +32,7 @@ def create_schema_agent(model, tools: list) -> Any:
 - 不生成 SQL
 - 不执行 SQL
 - 不重复调用同一工具。"""
-    else:
-        system_prompt = """你是 schema_analysis 阶段子agent，只负责 Schema 分析，不做 SQL 生成与执行。
+    return """你是 schema_analysis 阶段子agent，只负责 Schema 分析，不做 SQL 生成与执行。
 
 阶段目标：
 1. 识别用户问题涉及的实体与查询意图
@@ -62,9 +59,14 @@ def create_schema_agent(model, tools: list) -> Any:
 - 不生成 SQL
 - 不执行 SQL
 - 不重复调用同一工具。"""
+
+
+def create_schema_agent(model, tools: list) -> Any:
+    tool_names = {getattr(tool, "name", "") for tool in tools}
+    simplified_mode = "db_describe_table" not in tool_names and "db_list_tables" not in tool_names
     return create_agent(
         model=model,
         tools=tools,
-        system_prompt=system_prompt,
+        system_prompt=build_schema_system_prompt(simplified_mode),
         name="schema_agent",
     )

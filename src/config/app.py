@@ -85,6 +85,7 @@ class Config(BaseModel):
     # 智能体配置
     # ============================================================
     default_agent_id: str = Field(default="", description="默认智能体ID")
+    checkpointer_postgres_url: str = Field(default="", description="checkpointer PostgreSQL连接串")
 
     # ============================================================
     # 模型信息（只读，不持久化）
@@ -238,6 +239,10 @@ class Config(BaseModel):
         # 检查网络搜索
         if os.getenv("TAVILY_API_KEY"):
             self.enable_web_search = True
+
+        self.checkpointer_postgres_url = (
+            os.getenv("CHECKPOINTER_POSTGRES_URL") or os.getenv("POSTGRES_URL") or self.checkpointer_postgres_url or ""
+        )
 
         # 获取可用的模型提供商
         self.valuable_model_provider = [k for k, v in self.model_provider_status.items() if v]

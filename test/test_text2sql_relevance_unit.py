@@ -55,4 +55,3 @@ def test_select_relevant_schema_expands_one_hop_relationship():
     # one-hop relationship expansion should bring customers in.
     assert "customers" in selected_names
     assert len(selected_relationships) == 1
-

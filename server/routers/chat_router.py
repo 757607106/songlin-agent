@@ -419,19 +419,40 @@ async def update_chat_models(model_provider: str, model_names: list[str], curren
 async def resume_agent_chat(
     agent_id: str,
     thread_id: str = Body(...),
-    approved: bool = Body(...),
+    approved: bool | None = Body(default=None),
+    decision: str | None = Body(default=None),
+    edited_text: str | None = Body(default=None),
     config: dict = Body({}),
     current_user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db),
 ):
     """恢复被人工审批中断的对话（需要登录）"""
-    logger.info(f"Resuming agent_id: {agent_id}, thread_id: {thread_id}, approved: {approved}")
+    if decision:
+        normalized_decision = decision.strip().lower()
+        if normalized_decision not in {"approve", "reject", "edit"}:
+            raise HTTPException(status_code=422, detail="decision 仅支持 approve/reject/edit")
+        if normalized_decision == "approve":
+            resume_payload: bool | dict = True
+        elif normalized_decision == "reject":
+            resume_payload = False
+        else:
+            resume_payload = {"decision": "edit", "content": edited_text or ""}
+    else:
+        if approved is None:
+            raise HTTPException(status_code=422, detail="approved 或 decision 至少提供一个")
+        normalized_decision = "approve" if approved else "reject"
+        resume_payload = approved
+
+    logger.info(
+        f"Resuming agent_id: {agent_id}, thread_id: {thread_id}, decision: {normalized_decision}, approved: {approved}"
+    )
 
     meta = {
         "agent_id": agent_id,
         "thread_id": thread_id,
         "user_id": current_user.id,
         "approved": approved,
+        "decision": normalized_decision,
     }
     if "request_id" not in meta or not meta.get("request_id"):
         meta["request_id"] = str(uuid.uuid4())
@@ -439,7 +460,7 @@ async def resume_agent_chat(
         stream_agent_resume(
             agent_id=agent_id,
             thread_id=thread_id,
-            approved=approved,
+            resume_payload=resume_payload,
             meta=meta,
             config=config,
             current_user=current_user,
@@ -579,6 +600,11 @@ class ThreadResponse(BaseModel):
     user_id: str
     agent_id: str
     title: str | None = None
+    last_message: str = ""
+    runtime_status: str = "idle"
+    status_updated_at: str | None = None
+    has_interrupt: bool = False
+    is_loading: bool = False
     created_at: str
     updated_at: str
 
@@ -624,10 +650,22 @@ async def create_thread(
 
 @chat.get("/threads", response_model=list[ThreadResponse])
 async def list_threads(
-    agent_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_required_user)
+    agent_id: str,
+    runtime_status: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_required_user),
 ):
     """获取用户的所有对话线程 (使用新存储系统)"""
-    return await list_threads_view(agent_id=agent_id, db=db, current_user_id=str(current_user.id))
+    return await list_threads_view(
+        agent_id=agent_id,
+        db=db,
+        current_user_id=str(current_user.id),
+        runtime_status=runtime_status,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @chat.delete("/thread/{thread_id}")

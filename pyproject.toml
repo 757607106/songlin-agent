@@ -6,7 +6,6 @@ readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
     "asyncpg>=0.30.0",
-    "aiosqlite>=0.20.0",
     "sqlalchemy[asyncio]>=2.0.0",
     "langchain>=1.2.0",
     "langchain-core >= 1.2.5",
@@ -22,7 +21,7 @@ dependencies = [
     "langchain-text-splitters>=1.0",
     "langgraph>=1.0.1",
     "langgraph-supervisor",
-    "langgraph-checkpoint-sqlite>=3.0",
+    "langgraph-checkpoint-postgres>=3.0",
     "langgraph-cli[inmem]>=0.4",
     "langsmith>=0.4",
     "lightrag-hku>=1.4.6",
@@ -68,6 +67,7 @@ dependencies = [
     "torchvision==0.23",
     "docling>=2.68.0",
     "loguru>=0.7.3",
+    "redis>=5.0.0",
 ]
 [tool.ruff]
 line-length = 120  # 代码最大行宽

@@ -1,7 +1,7 @@
 """Deep Agent - 基于create_deep_agent的深度分析智能体"""
 
 from deepagents import create_deep_agent
-from deepagents.backends import StateBackend
+from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 
 from src.agents.common import BaseAgent, load_chat_model
 from src.agents.common.middlewares import RuntimeConfigMiddleware, save_attachments_to_fs
@@ -11,9 +11,14 @@ from src.services.mcp_service import get_tools_from_all_servers
 from .context import DeepContext
 
 
-def _create_fs_backend(rt):
-    """创建文件存储后端"""
-    return StateBackend(rt)
+def _create_composite_backend(rt):
+    return CompositeBackend(
+        default=StateBackend(rt),
+        routes={
+            "/memories/": StoreBackend(rt),
+            "/preferences/": StoreBackend(rt),
+        },
+    )
 
 
 def _get_research_sub_agent(search_tools: list) -> dict:
@@ -67,8 +72,7 @@ class DeepAgent(BaseAgent):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.graph = None
-        self.checkpointer = None
+        self._graph_cache: dict[tuple[str, str, tuple[str, ...]], object] = {}
 
     async def get_tools(self):
         """返回 Deep Agent 的专用工具"""
@@ -78,16 +82,17 @@ class DeepAgent(BaseAgent):
             tools.append(tavily_search)
 
         # Assert that search tool is available for DeepAgent
-        assert tools, (
-            "DeepAgent 需要至少一个搜索工具。"
-            "请配置 TAVILY_API_KEY 环境变量以启用网络搜索。"
-        )
+        assert tools, "DeepAgent 需要至少一个搜索工具。请配置 TAVILY_API_KEY 环境变量以启用网络搜索。"
         return tools
 
     async def get_graph(self, **kwargs):
-        """构建 Deep Agent 的图"""
         context = self.context_schema.from_file(module_name=self.module_name)
         context.update(kwargs)
+        mcp_servers = tuple(context.mcps or [])
+        cache_key = (context.model, context.system_prompt, mcp_servers)
+        cached_graph = self._graph_cache.get(cache_key)
+        if cached_graph is not None:
+            return cached_graph
 
         model = load_chat_model(context.model)
         search_tools = await self.get_tools()
@@ -121,13 +126,14 @@ class DeepAgent(BaseAgent):
             tools=search_tools,
             system_prompt=context.system_prompt,
             subagents=[critique_sub_agent, research_sub_agent],
-            backend=_create_fs_backend,
+            backend=_create_composite_backend,
             middleware=[
                 RuntimeConfigMiddleware(extra_tools=all_mcp_tools),
                 save_attachments_to_fs,
             ],
             checkpointer=await self._get_checkpointer(),
+            store=await self._get_store(),
             name="deep_research_agent",
         )
-
+        self._graph_cache[cache_key] = graph
         return graph

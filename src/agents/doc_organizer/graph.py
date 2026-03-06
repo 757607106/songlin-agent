@@ -1,5 +1,5 @@
 from deepagents import create_deep_agent
-from deepagents.backends import StateBackend
+from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 
 from src.agents.common import BaseAgent, load_chat_model
 from src.agents.common.middlewares import RuntimeConfigMiddleware, save_attachments_to_fs
@@ -8,8 +8,14 @@ from src.services.mcp_service import get_tools_from_all_servers
 from .context import DocOrganizerContext
 
 
-def _create_fs_backend(rt):
-    return StateBackend(rt)
+def _create_composite_backend(rt):
+    return CompositeBackend(
+        default=StateBackend(rt),
+        routes={
+            "/memories/": StoreBackend(rt),
+            "/preferences/": StoreBackend(rt),
+        },
+    )
 
 
 def _get_document_recognizer() -> dict:
@@ -82,12 +88,16 @@ class DocOrganizerAgent(BaseAgent):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.graph = None
-        self.checkpointer = None
+        self._graph_cache: dict[tuple[str, str, tuple[str, ...]], object] = {}
 
     async def get_graph(self, **kwargs):
         context = self.context_schema.from_file(module_name=self.module_name)
         context.update(kwargs)
+        mcp_servers = tuple(context.mcps or [])
+        cache_key = (context.model, context.system_prompt, mcp_servers)
+        cached_graph = self._graph_cache.get(cache_key)
+        if cached_graph is not None:
+            return cached_graph
 
         model = load_chat_model(context.model)
         all_mcp_tools = await get_tools_from_all_servers()
@@ -113,12 +123,14 @@ class DocOrganizerAgent(BaseAgent):
             tools=[],
             system_prompt=context.system_prompt,
             subagents=subagents,
-            backend=_create_fs_backend,
+            backend=_create_composite_backend,
             middleware=[
                 RuntimeConfigMiddleware(extra_tools=all_mcp_tools),
                 save_attachments_to_fs,
             ],
             checkpointer=await self._get_checkpointer(),
+            store=await self._get_store(),
             name="document_organizer_agent",
         )
+        self._graph_cache[cache_key] = graph
         return graph

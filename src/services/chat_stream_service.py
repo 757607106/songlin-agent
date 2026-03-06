@@ -1,12 +1,18 @@
 import asyncio
+import contextlib
+import hashlib
 import json
+import os
 import traceback
 import uuid
+from collections import defaultdict
 from collections.abc import AsyncIterator
 from datetime import datetime
 
 from langchain.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.types import Command
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import config as conf
 from src import knowledge_base
@@ -16,6 +22,116 @@ from src.repositories.agent_config_repository import AgentConfigRepository
 from src.repositories.conversation_repository import ConversationRepository
 from src.storage.postgres.manager import pg_manager
 from src.utils.logging_config import logger
+
+RUNTIME_STATUS_IDLE = "idle"
+RUNTIME_STATUS_RUNNING = "running"
+RUNTIME_STATUS_WAITING_FOR_HUMAN = "waiting_for_human"
+RUNTIME_STATUS_COMPLETED = "completed"
+RUNTIME_STATUS_ERROR = "error"
+_thread_stream_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+THREAD_DISTRIBUTED_LOCK_ENABLED = os.getenv("THREAD_DISTRIBUTED_LOCK_ENABLED", "1") == "1"
+THREAD_DISTRIBUTED_LOCK_NAMESPACE = os.getenv("THREAD_DISTRIBUTED_LOCK_NAMESPACE", "thread_stream")
+AGENT_STREAM_NEXT_TIMEOUT_SECONDS = max(5, int(os.getenv("AGENT_STREAM_NEXT_TIMEOUT_SECONDS", "180")))
+
+
+async def _iterate_with_next_timeout(stream_source, timeout_seconds: int):
+    pending_next = asyncio.create_task(stream_source.__anext__())
+    timeout_count = 0
+    try:
+        while True:
+            done, _ = await asyncio.wait({pending_next}, timeout=timeout_seconds)
+            if not done:
+                timeout_count += 1
+                if timeout_count == 1 or timeout_count % 5 == 0:
+                    logger.warning(
+                        f"No new stream chunk for {timeout_seconds}s (x{timeout_count}); "
+                        "still waiting for upstream stream source."
+                    )
+                continue
+
+            timeout_count = 0
+            try:
+                next_item = pending_next.result()
+            except StopAsyncIteration:
+                break
+            pending_next = asyncio.create_task(stream_source.__anext__())
+            yield next_item
+    finally:
+        if not pending_next.done():
+            pending_next.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pending_next
+
+
+def _advisory_lock_key(namespace: str, resource_id: str) -> int:
+    digest = hashlib.blake2b(f"{namespace}:{resource_id}".encode(), digest_size=8).digest()
+    return int.from_bytes(digest, byteorder="big", signed=True)
+
+
+async def _try_acquire_distributed_thread_lock(thread_id: str) -> tuple[AsyncSession | None, bool]:
+    if not THREAD_DISTRIBUTED_LOCK_ENABLED or not pg_manager.is_postgresql:
+        return None, True
+    lock_session = await pg_manager.get_async_session()
+    lock_key = _advisory_lock_key(THREAD_DISTRIBUTED_LOCK_NAMESPACE, thread_id)
+    try:
+        result = await lock_session.execute(text("SELECT pg_try_advisory_lock(:lock_key)"), {"lock_key": lock_key})
+        acquired = bool(result.scalar())
+        if not acquired:
+            await lock_session.close()
+            return None, False
+        return lock_session, True
+    except Exception as exc:
+        logger.warning(f"Failed to acquire distributed lock for thread {thread_id}: {exc}")
+        await lock_session.close()
+        return None, True
+
+
+async def _release_distributed_thread_lock(lock_session: AsyncSession | None, thread_id: str) -> None:
+    if lock_session is None:
+        return
+    lock_key = _advisory_lock_key(THREAD_DISTRIBUTED_LOCK_NAMESPACE, thread_id)
+    try:
+        await lock_session.execute(text("SELECT pg_advisory_unlock(:lock_key)"), {"lock_key": lock_key})
+    except Exception as exc:
+        logger.warning(f"Failed to release distributed lock for thread {thread_id}: {exc}")
+    finally:
+        await lock_session.close()
+
+
+def _runtime_status_metadata(
+    status: str,
+    *,
+    has_interrupt: bool = False,
+    error_message: str | None = None,
+) -> dict:
+    metadata = {
+        "runtime_status": status,
+        "status_updated_at": datetime.utcnow().isoformat() + "+00:00",
+        "has_interrupt": has_interrupt,
+    }
+    if error_message:
+        metadata["last_error_message"] = str(error_message)[:1000]
+    elif status in (RUNTIME_STATUS_RUNNING, RUNTIME_STATUS_COMPLETED, RUNTIME_STATUS_IDLE):
+        metadata["last_error_message"] = ""
+    return metadata
+
+
+async def update_thread_runtime_status(
+    conv_repo: ConversationRepository,
+    thread_id: str,
+    status: str,
+    *,
+    has_interrupt: bool = False,
+    error_message: str | None = None,
+) -> None:
+    await conv_repo.update_conversation(
+        thread_id=thread_id,
+        metadata=_runtime_status_metadata(
+            status,
+            has_interrupt=has_interrupt,
+            error_message=error_message,
+        ),
+    )
 
 
 def _build_state_files(attachments: list[dict]) -> dict:
@@ -218,6 +334,7 @@ async def check_and_handle_interrupts(
     make_chunk,
     meta: dict,
     thread_id: str,
+    on_interrupt=None,
 ) -> AsyncIterator[bytes]:
     try:
         state = await graph.aget_state(langgraph_config)
@@ -253,6 +370,8 @@ async def check_and_handle_interrupts(
                 "operation": operation,
                 "thread_id": thread_id,
             }
+            if on_interrupt:
+                await on_interrupt(question, operation)
             yield make_chunk(status="interrupted", message=question, meta=meta)
 
     except Exception as e:
@@ -358,8 +477,30 @@ async def stream_agent_chat(
         "agent_config": agent_config,
     }
 
+    thread_lock = _thread_stream_locks[thread_id]
+    if thread_lock.locked():
+        yield make_chunk(
+            status="error",
+            error_type="thread_busy",
+            error_message="当前会话正在执行中，请稍后重试",
+            meta=meta,
+        )
+        return
+    await thread_lock.acquire()
+    distributed_lock_session = None
+
     try:
+        distributed_lock_session, distributed_lock_acquired = await _try_acquire_distributed_thread_lock(thread_id)
+        if not distributed_lock_acquired:
+            yield make_chunk(
+                status="error",
+                error_type="thread_busy",
+                error_message="当前会话正在执行中，请稍后重试",
+                meta=meta,
+            )
+            return
         conv_repo = ConversationRepository(db)
+        await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_RUNNING, has_interrupt=False)
 
         try:
             await conv_repo.add_message_by_thread_id(
@@ -403,7 +544,10 @@ async def stream_agent_chat(
         accumulated_content = []
         tool_state_event_count = 0
         last_tool_state_emit_at = 0.0
-        async for msg, metadata in agent.stream_messages(messages, input_context=input_context):
+        async for msg, metadata in _iterate_with_next_timeout(
+            agent.stream_messages(messages, input_context=input_context),
+            AGENT_STREAM_NEXT_TIMEOUT_SECONDS,
+        ):
             if isinstance(msg, AIMessageChunk):
                 accumulated_content.append(msg.content)
 
@@ -453,7 +597,17 @@ async def stream_agent_chat(
         if state_graph is None:
             state_graph = await agent.get_graph()
 
-        async for chunk in check_and_handle_interrupts(state_graph, langgraph_config, make_chunk, meta, thread_id):
+        async def _mark_interrupt(_question, _operation):
+            await update_thread_runtime_status(
+                conv_repo,
+                thread_id,
+                RUNTIME_STATUS_WAITING_FOR_HUMAN,
+                has_interrupt=True,
+            )
+
+        async for chunk in check_and_handle_interrupts(
+            state_graph, langgraph_config, make_chunk, meta, thread_id, on_interrupt=_mark_interrupt
+        ):
             yield chunk
 
         meta["time_cost"] = asyncio.get_event_loop().time() - start_time
@@ -475,6 +629,7 @@ async def stream_agent_chat(
             conv_repo=conv_repo,
             config_dict=langgraph_config,
         )
+        await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_COMPLETED, has_interrupt=False)
 
         yield make_chunk(status="finished", meta=meta)
 
@@ -495,6 +650,7 @@ async def stream_agent_chat(
                     error_message="对话已中断" if not full_msg else None,
                     error_type="interrupted",
                 )
+                await update_thread_runtime_status(new_conv_repo, thread_id, RUNTIME_STATUS_IDLE, has_interrupt=False)
 
         cleanup_task = asyncio.create_task(save_cleanup())
         try:
@@ -524,15 +680,26 @@ async def stream_agent_chat(
                 error_message=error_msg,
                 error_type=error_type,
             )
+            await update_thread_runtime_status(
+                new_conv_repo,
+                thread_id,
+                RUNTIME_STATUS_ERROR,
+                has_interrupt=False,
+                error_message=error_msg,
+            )
 
         yield make_chunk(status="error", error_type=error_type, error_message=error_msg, meta=meta)
+    finally:
+        await _release_distributed_thread_lock(distributed_lock_session, thread_id)
+        if thread_lock.locked():
+            thread_lock.release()
 
 
 async def stream_agent_resume(
     *,
     agent_id: str,
     thread_id: str,
-    approved: bool,
+    resume_payload: bool | dict,
     meta: dict,
     config: dict,
     current_user,
@@ -548,7 +715,28 @@ async def stream_agent_resume(
             + b"\n"
         )
 
+    thread_lock = _thread_stream_locks[thread_id]
+    if thread_lock.locked():
+        yield make_resume_chunk(
+            status="error",
+            error_type="thread_busy",
+            error_message="当前会话正在执行中，请稍后重试",
+            meta=meta,
+        )
+        return
+    await thread_lock.acquire()
+    distributed_lock_session = None
+
     try:
+        distributed_lock_session, distributed_lock_acquired = await _try_acquire_distributed_thread_lock(thread_id)
+        if not distributed_lock_acquired:
+            yield make_resume_chunk(
+                status="error",
+                error_type="thread_busy",
+                error_message="当前会话正在执行中，请稍后重试",
+                meta=meta,
+            )
+            return
         agent = agent_manager.get_agent(agent_id)
     except Exception as e:
         logger.error(f"Error getting agent {agent_id}: {e}, {traceback.format_exc()}")
@@ -558,10 +746,10 @@ async def stream_agent_resume(
         )
         return
 
-    init_msg = {"type": "system", "content": f"Resume with approved: {approved}"}
+    init_msg = {"type": "system", "content": f"Resume with decision: {meta.get('decision', 'approve')}"}
     yield make_resume_chunk(status="init", meta=meta, msg=init_msg)
 
-    resume_command = Command(resume=approved)
+    resume_command = Command(resume=resume_payload)
     user_id = str(current_user.id)
     department_id = current_user.department_id
     if not department_id:
@@ -595,11 +783,7 @@ async def stream_agent_resume(
         "agent_config_id": agent_config_id,
         "agent_config": (config_item.config_json or {}).get("context", config_item.config_json or {}),
     }
-    context = agent.context_schema()
-    agent_config = input_context.get("agent_config")
-    if isinstance(agent_config, dict):
-        context.update(agent_config)
-    context.update(input_context)
+    context = agent._build_runtime_context(input_context)
     graph = await agent.get_graph()
 
     stream_source = graph.astream(
@@ -608,9 +792,11 @@ async def stream_agent_resume(
         config={"configurable": {"thread_id": thread_id, "user_id": user_id}},
         stream_mode="messages",
     )
+    conv_repo = ConversationRepository(db)
+    await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_RUNNING, has_interrupt=False)
 
     try:
-        async for msg, metadata in stream_source:
+        async for msg, metadata in _iterate_with_next_timeout(stream_source, AGENT_STREAM_NEXT_TIMEOUT_SECONDS):
             msg_dict = msg.model_dump()
             if "id" not in msg_dict:
                 msg_dict["id"] = str(uuid.uuid4())
@@ -620,19 +806,30 @@ async def stream_agent_resume(
             )
 
         langgraph_config = {"configurable": {"thread_id": thread_id, "user_id": str(current_user.id)}}
-        async for chunk in check_and_handle_interrupts(graph, langgraph_config, make_resume_chunk, meta, thread_id):
+
+        async def _mark_interrupt(_question, _operation):
+            await update_thread_runtime_status(
+                conv_repo,
+                thread_id,
+                RUNTIME_STATUS_WAITING_FOR_HUMAN,
+                has_interrupt=True,
+            )
+
+        async for chunk in check_and_handle_interrupts(
+            graph, langgraph_config, make_resume_chunk, meta, thread_id, on_interrupt=_mark_interrupt
+        ):
             yield chunk
 
         meta["time_cost"] = asyncio.get_event_loop().time() - start_time
 
         # 先存储数据库，再返回 finished，避免前端查询时数据未落库
-        conv_repo = ConversationRepository(db)
         await save_messages_from_langgraph_state(
             graph=graph,
             thread_id=thread_id,
             conv_repo=conv_repo,
             config_dict=langgraph_config,
         )
+        await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_COMPLETED, has_interrupt=False)
 
         yield make_resume_chunk(status="finished", meta=meta)
 
@@ -644,6 +841,7 @@ async def stream_agent_resume(
             await save_partial_message(
                 new_conv_repo, thread_id, error_message="对话恢复已中断", error_type="resume_interrupted"
             )
+            await update_thread_runtime_status(new_conv_repo, thread_id, RUNTIME_STATUS_IDLE, has_interrupt=False)
 
         yield make_resume_chunk(status="interrupted", message="对话恢复已中断", meta=meta)
 
@@ -655,8 +853,19 @@ async def stream_agent_resume(
             await save_partial_message(
                 new_conv_repo, thread_id, error_message=f"Error during resume: {e}", error_type="resume_error"
             )
+            await update_thread_runtime_status(
+                new_conv_repo,
+                thread_id,
+                RUNTIME_STATUS_ERROR,
+                has_interrupt=False,
+                error_message=f"Error during resume: {e}",
+            )
 
         yield make_resume_chunk(message=f"Error during resume: {e}", status="error")
+    finally:
+        await _release_distributed_thread_lock(distributed_lock_session, thread_id)
+        if thread_lock.locked():
+            thread_lock.release()
 
 
 async def get_agent_state_view(
