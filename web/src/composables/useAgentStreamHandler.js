@@ -142,10 +142,35 @@ export function useAgentStreamHandler({
         }
         return false
 
+      case 'subagent_step':
+        // 处理子 Agent 执行步骤事件
+        if (chunk.subagent_name && chunk.step) {
+          console.log('[SubagentStep]', {
+            threadId,
+            subagent: chunk.subagent_name,
+            step: chunk.step,
+            namespace: chunk.namespace || []
+          })
+          // 更新子 Agent 执行状态
+          if (!threadState.subagentSteps) {
+            threadState.subagentSteps = []
+          }
+          threadState.subagentSteps.push({
+            name: chunk.subagent_name,
+            step: chunk.step,
+            timestamp: Date.now()
+          })
+          // 设置当前活动的子 Agent
+          threadState.activeSubagent = chunk.subagent_name
+        }
+        return false
+
       case 'finished':
         // 先标记流式结束，但保持消息显示直到历史记录加载完成
         if (threadState) {
           threadState.isStreaming = false
+          // 清除子 Agent 执行状态
+          threadState.activeSubagent = null
           if ((unref(supportsTodo) || unref(supportsFiles)) && threadState.agentState) {
             console.log(
               `[AgentState|Final] ${new Date().toLocaleTimeString()}.${new Date().getMilliseconds()}`,

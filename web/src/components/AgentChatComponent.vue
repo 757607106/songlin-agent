@@ -99,7 +99,13 @@
                   <div></div>
                   <div></div>
                 </div>
-                <span class="generating-text">正在生成回复...</span>
+                <span class="generating-text">
+                  <template v-if="activeSubagent">
+                    <span class="subagent-badge">{{ activeSubagent }}</span>
+                    正在执行...
+                  </template>
+                  <template v-else> 正在生成回复... </template>
+                </span>
               </div>
             </div>
           </div>
@@ -487,6 +493,12 @@ const isStreaming = computed(() => {
 })
 const isProcessing = computed(() => isStreaming.value)
 
+// 获取当前活动的子 Agent 名称
+const activeSubagent = computed(() => {
+  const threadState = currentThreadState.value
+  return threadState ? threadState.activeSubagent : null
+})
+
 // ==================== SCROLL & RESIZE HANDLING ====================
 // Update scroll controller to target .chat-main
 const scrollController = new ScrollController('.chat-main')
@@ -521,7 +533,9 @@ const getThreadState = (threadId) => {
       isStreaming: false,
       streamAbortController: null,
       onGoingConv: createOnGoingConvState(),
-      agentState: null // 添加 agentState 字段
+      agentState: null, // 添加 agentState 字段
+      activeSubagent: null, // 当前活动的子 Agent
+      subagentSteps: [] // 子 Agent 执行步骤历史
     }
   }
   return chatState.threadStates[threadId]
@@ -1582,6 +1596,19 @@ watch(
     background-clip: text;
     color: transparent;
     animation: waveFlash 2s linear infinite;
+
+    .subagent-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      margin-right: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--primary-600);
+      background: var(--primary-100);
+      border-radius: 4px;
+      -webkit-background-clip: unset;
+      background-clip: unset;
+    }
   }
 }
 

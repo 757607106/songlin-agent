@@ -19,59 +19,57 @@ def _create_composite_backend(rt):
 
 
 def _get_document_recognizer() -> dict:
+    """Get document recognizer sub-agent config.
+
+    子 Agent 不预设 system_prompt，文件路径规范由主 Agent 提示词定义，
+    通过 task description 动态传递给子 Agent。
+    """
     return {
         "name": "document-recognizer",
         "description": "识别附件文档结构、主题、关键信息并形成逐文档分析结果。",
-        "system_prompt": (
-            "你是文档识别专家。"
-            "每次只处理一个附件文件。"
-            "读取附件后输出结构化分析，写入 /analysis/<文件名>_analysis.md。"
-            "分析必须包含主题、核心观点、术语、可复用知识点。"
-        ),
+        "system_prompt": "",  # 空字符串，由主 Agent task description 指定
         "tools": [],
     }
 
 
 def _get_commonality_miner() -> dict:
+    """Get commonality miner sub-agent config.
+
+    子 Agent 不预设 system_prompt，文件路径规范由主 Agent 提示词定义，
+    通过 task description 动态传递给子 Agent。
+    """
     return {
         "name": "commonality-miner",
         "description": "从多个附件分析结果中提炼共性与通识知识。",
-        "system_prompt": (
-            "你是知识归纳专家。"
-            "基于多个文档分析结果提炼通识知识与共性结构。"
-            "输出内容写入 /organized/common_knowledge.md。"
-            "要求去重、抽象、可复用，并保留对应来源文件路径。"
-        ),
+        "system_prompt": "",  # 空字符串，由主 Agent task description 指定
         "tools": [],
     }
 
 
 def _get_organization_planner() -> dict:
+    """Get organization planner sub-agent config.
+
+    子 Agent 不预设 system_prompt，文件路径规范由主 Agent 提示词定义，
+    通过 task description 动态传递给子 Agent。
+    """
     return {
         "name": "organization-planner",
         "description": "生成文档整理方案，等待用户确认后再执行。",
-        "system_prompt": (
-            "你是文档整理方案设计专家。"
-            "根据共性知识和附件清单，生成可执行整理方案。"
-            "写入 /organized/organize_plan.md。"
-            "必须包含目录结构、内容合并规则、逐文件输出映射、格式回写策略与回退策略。"
-            "完成后提醒主agent等待用户确认。"
-        ),
+        "system_prompt": "",  # 空字符串，由主 Agent task description 指定
         "tools": [],
     }
 
 
 def _get_renderer() -> dict:
+    """Get renderer sub-agent config.
+
+    子 Agent 不预设 system_prompt，文件路径规范由主 Agent 提示词定义，
+    通过 task description 动态传递给子 Agent。
+    """
     return {
         "name": "renderer-agent",
         "description": "根据已确认方案产出最终标准文档。",
-        "system_prompt": (
-            "你是文档编排与成稿专家。"
-            "仅在用户确认方案后执行。"
-            "生成 /organized/merged_standard.md。"
-            "按原后缀优先生成 /organized/by_file/<名称>_standard.<原后缀>。"
-            "若无法稳定回写原后缀，使用 .md 并更新 /organized/format_mapping.md。"
-        ),
+        "system_prompt": "",  # 空字符串，由主 Agent task description 指定
         "tools": [],
     }
 

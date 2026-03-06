@@ -544,10 +544,41 @@ async def stream_agent_chat(
         accumulated_content = []
         tool_state_event_count = 0
         last_tool_state_emit_at = 0.0
+        current_subagent = None  # 跟踪当前执行的子 Agent
         async for msg, metadata in _iterate_with_next_timeout(
             agent.stream_messages(messages, input_context=input_context),
             AGENT_STREAM_NEXT_TIMEOUT_SECONDS,
         ):
+            # 检查是 updates 模式还是 messages 模式
+            if isinstance(metadata, dict) and metadata.get("mode") == "updates":
+                # 这是状态更新事件（包含子 Agent 步骤信息）
+                update_event = msg  # msg 实际上是 update_event 字典
+                if isinstance(update_event, dict) and update_event.get("type") == "state_update":
+                    is_subagent = update_event.get("is_subagent", False)
+                    subagent_name = update_event.get("subagent_name")
+                    nodes = update_event.get("nodes", [])
+
+                    # 发送子 Agent 状态更新事件
+                    if is_subagent and nodes:
+                        # 过滤内部中间件步骤，只显示有意义的节点
+                        interesting_nodes = [n for n in nodes if n in ("model_request", "tools")]
+                        if interesting_nodes:
+                            # 跟踪子 Agent 状态变化
+                            if subagent_name != current_subagent:
+                                current_subagent = subagent_name
+                            yield make_chunk(
+                                status="subagent_step",
+                                subagent_name=subagent_name,
+                                step=interesting_nodes[0],
+                                namespace=update_event.get("namespace", []),
+                                meta=meta,
+                            )
+                continue
+
+            # messages 模式：原有的消息处理逻辑
+            is_subagent = metadata.get("is_subagent", False) if isinstance(metadata, dict) else False
+            subagent_name = metadata.get("subagent_name") if isinstance(metadata, dict) else None
+
             if isinstance(msg, AIMessageChunk):
                 accumulated_content.append(msg.content)
 
@@ -559,13 +590,27 @@ async def stream_agent_chat(
                     yield make_chunk(status="interrupted", message="检测到敏感内容，已中断输出", meta=meta)
                     return
 
-                yield make_chunk(content=msg.content, msg=msg.model_dump(), metadata=metadata, status="loading")
+                # 添加子 Agent 信息到输出
+                yield make_chunk(
+                    content=msg.content,
+                    msg=msg.model_dump(),
+                    metadata=metadata,
+                    status="loading",
+                    is_subagent=is_subagent,
+                    subagent_name=subagent_name,
+                )
             else:
-                msg_dict = msg.model_dump()
-                yield make_chunk(msg=msg_dict, metadata=metadata, status="loading")
+                msg_dict = msg.model_dump() if hasattr(msg, "model_dump") else msg
+                yield make_chunk(
+                    msg=msg_dict,
+                    metadata=metadata,
+                    status="loading",
+                    is_subagent=is_subagent,
+                    subagent_name=subagent_name,
+                )
 
                 try:
-                    if msg_dict.get("type") == "tool":
+                    if isinstance(msg_dict, dict) and msg_dict.get("type") == "tool":
                         tool_state_event_count += 1
                         now_ts = asyncio.get_event_loop().time()
                         should_emit_state = tool_state_event_count % 3 == 0 or (now_ts - last_tool_state_emit_at) >= 1.5
