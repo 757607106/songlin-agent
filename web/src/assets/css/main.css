@@ -32,34 +32,71 @@ body {
 }
 
 /* Typography Utilities */
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   color: var(--gray-1000);
   font-weight: 600;
   line-height: 1.3;
 }
 
-h1 { font-size: 2.5rem; letter-spacing: -0.025em; }
-h2 { font-size: 1.875rem; letter-spacing: -0.025em; }
-h3 { font-size: 1.5rem; letter-spacing: -0.025em; }
-h4 { font-size: 1.25rem; letter-spacing: -0.015em; }
-h5 { font-size: 1.125rem; }
-h6 { font-size: 1rem; }
+h1 {
+  font-size: 2.5rem;
+  letter-spacing: -0.025em;
+}
+h2 {
+  font-size: 1.875rem;
+  letter-spacing: -0.025em;
+}
+h3 {
+  font-size: 1.5rem;
+  letter-spacing: -0.025em;
+}
+h4 {
+  font-size: 1.25rem;
+  letter-spacing: -0.015em;
+}
+h5 {
+  font-size: 1.125rem;
+}
+h6 {
+  font-size: 1rem;
+}
 
 /* Animation Utilities */
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slideUpFade {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes pulse-soft {
-  0% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.4); }
-  70% { box-shadow: 0 0 0 10px rgba(6, 182, 212, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0); }
+  0% {
+    box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(6, 182, 212, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(6, 182, 212, 0);
+  }
 }
 
 .animate-fade-in {
@@ -97,10 +134,22 @@ h6 { font-size: 1rem; }
   font-style: normal;
   fill: currentColor;
 
-  &.icon-10 { width: 10px; height: 10px; }
-  &.icon-16 { width: 16px; height: 16px; }
-  &.icon-20 { width: 20px; height: 20px; }
-  &.icon-24 { width: 24px; height: 24px; }
+  &.icon-10 {
+    width: 10px;
+    height: 10px;
+  }
+  &.icon-16 {
+    width: 16px;
+    height: 16px;
+  }
+  &.icon-20 {
+    width: 20px;
+    height: 20px;
+  }
+  &.icon-24 {
+    width: 24px;
+    height: 24px;
+  }
 }
 
 /* Common Interactive Elements */
@@ -125,10 +174,12 @@ h6 { font-size: 1rem; }
   left: -50%;
   width: 200%;
   height: 200%;
-  background: radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 60%);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.2) 0%, transparent 60%);
   transform: scale(0);
   opacity: 0;
-  transition: transform 0.6s, opacity 0.6s;
+  transition:
+    transform 0.6s,
+    opacity 0.6s;
 }
 
 .btn-primary-glow:active::after {

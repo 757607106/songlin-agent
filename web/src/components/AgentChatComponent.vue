@@ -1367,7 +1367,7 @@ watch(
     flex-basis 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   min-width: 0;
-  
+
   /* Add a subtle pattern or gradient if desired, or keep clean */
   background: radial-gradient(circle at 50% 30%, var(--main-10) 0%, transparent 70%);
 

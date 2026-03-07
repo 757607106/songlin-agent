@@ -641,7 +641,9 @@ defineExpose({
 
   &:focus-within {
     border-color: var(--main-400);
-    box-shadow: var(--shadow-glow), 0 4px 12px rgba(0, 0, 0, 0.05);
+    box-shadow:
+      var(--shadow-glow),
+      0 4px 12px rgba(0, 0, 0, 0.05);
     transform: translateY(-1px);
   }
 

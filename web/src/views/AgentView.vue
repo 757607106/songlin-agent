@@ -530,7 +530,7 @@ const handlePreview = () => {
   justify-content: space-between;
   align-items: flex-start;
   padding: 4px 0;
-  
+
   .agent-option-content {
     display: flex;
     flex-direction: column;
@@ -620,7 +620,7 @@ const handlePreview = () => {
     background: none;
     border: none;
     min-height: 32px;
-    
+
     :deep(.ant-tag) {
       margin: 0;
       padding: 6px 12px;
@@ -633,7 +633,7 @@ const handlePreview = () => {
       display: flex;
       align-items: center;
       transition: all 0.2s ease;
-      
+
       &:hover {
         border-color: var(--main-300);
         color: var(--main-700);
@@ -645,7 +645,7 @@ const handlePreview = () => {
         margin-left: 6px;
         font-size: 12px;
         transition: color 0.2s;
-        
+
         &:hover {
           color: var(--color-error-500);
         }
@@ -667,7 +667,7 @@ const handlePreview = () => {
     border-bottom: 1px solid var(--gray-100);
     padding: 20px 24px;
     margin-bottom: 0;
-    
+
     .ant-modal-title {
       font-size: 18px;
       font-weight: 700;
@@ -688,11 +688,11 @@ const handlePreview = () => {
         padding: 10px 14px;
         font-size: 14px;
         transition: all 0.2s;
-        
+
         &:hover {
           border-color: var(--main-300);
         }
-        
+
         &:focus {
           border-color: var(--main-500);
           box-shadow: 0 0 0 2px var(--main-100);
@@ -706,38 +706,38 @@ const handlePreview = () => {
       border-radius: 12px;
       margin-bottom: 20px;
       background: var(--gray-0);
-      
+
       .tool-item {
         padding: 16px 20px;
         border-bottom: 1px solid var(--gray-100);
         cursor: pointer;
         transition: all 0.2s ease;
         border-left: 4px solid transparent;
-        
+
         &:last-child {
           border-bottom: none;
         }
-        
+
         &:hover {
           background: var(--gray-50);
         }
-        
+
         &.selected {
           background: var(--main-50);
           border-left-color: var(--main-500);
-          
+
           .tool-content .tool-header .tool-name {
             color: var(--main-700);
           }
         }
-        
+
         .tool-content {
           .tool-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 8px;
-            
+
             .tool-name {
               font-weight: 600;
               color: var(--gray-900);
@@ -745,7 +745,7 @@ const handlePreview = () => {
               transition: color 0.2s;
             }
           }
-          
+
           .tool-description {
             font-size: 13px;
             color: var(--gray-500);
@@ -766,17 +766,17 @@ const handlePreview = () => {
       align-items: center;
       padding-top: 20px;
       border-top: 1px solid var(--gray-100);
-      
+
       .selected-count {
         font-size: 14px;
         color: var(--gray-600);
         font-weight: 500;
       }
-      
+
       .modal-actions {
         display: flex;
         gap: 12px;
-        
+
         :deep(.ant-btn) {
           border-radius: 8px;
           font-weight: 600;
@@ -784,31 +784,31 @@ const handlePreview = () => {
           height: 40px;
           font-size: 14px;
           transition: all 0.2s;
-          
+
           &.ant-btn-default {
             border: 1px solid var(--gray-300);
             color: var(--gray-700);
             background: var(--gray-0);
-            
+
             &:hover {
               border-color: var(--gray-400);
               color: var(--gray-900);
               background: var(--gray-50);
             }
           }
-          
+
           &.ant-btn-primary {
             background: var(--main-500);
             border: none;
             color: var(--gray-0);
             box-shadow: 0 2px 4px rgba(6, 182, 212, 0.2);
-            
+
             &:hover {
               background: var(--main-600);
               transform: translateY(-1px);
               box-shadow: 0 4px 8px rgba(6, 182, 212, 0.3);
             }
-            
+
             &:active {
               transform: translateY(0);
             }
@@ -879,7 +879,7 @@ const handlePreview = () => {
       .option-text {
         color: var(--gray-700);
       }
-      
+
       &:hover .option-indicator {
         opacity: 0.5;
       }
@@ -1000,7 +1000,7 @@ const handlePreview = () => {
         border-color: var(--main-300);
         transform: translateY(-4px);
         box-shadow: var(--shadow-2);
-        
+
         .agent-card-header .agent-card-title .agent-card-name {
           color: var(--main-600);
         }
@@ -1036,7 +1036,7 @@ const handlePreview = () => {
             color: var(--color-warning-500);
             transform: scale(1.1);
           }
-          
+
           &.anticon-star-filled {
             color: var(--color-warning-500);
           }

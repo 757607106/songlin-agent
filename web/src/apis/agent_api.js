@@ -73,6 +73,11 @@ export const agentApi = {
   getAgentDetail: (agentId) => apiGet(`/api/chat/agent/${agentId}`),
 
   /**
+   * 重新发现并加载 Agent 插件
+   */
+  reloadAgents: () => apiAdminPost('/api/chat/agent/reload', {}),
+
+  /**
    * 获取智能体历史消息
    * @param {string} agentId - 智能体ID
    * @param {string} threadId - 会话ID
@@ -161,6 +166,48 @@ export const agentApi = {
 
   deleteAgentConfigProfile: (agentId, configId) =>
     apiAdminDelete(`/api/chat/agent/${agentId}/configs/${configId}`),
+
+  /**
+   * 团队创建向导：根据自然语言输入增量构建团队草稿
+   */
+  teamWizardStep: (agentId, message, draft = null) =>
+    apiPost(`/api/chat/agent/${agentId}/team/wizard`, { message, draft }),
+
+  /**
+   * 校验团队定义（职责边界/依赖/通信）
+   */
+  validateTeamConfig: (agentId, team, strict = true) =>
+    apiPost(`/api/chat/agent/${agentId}/team/validate`, { team, strict }),
+
+  /**
+   * 将团队定义落库为 Agent 配置
+   */
+  createTeamProfile: (agentId, payload) => apiAdminPost(`/api/chat/agent/${agentId}/team/create`, payload),
+
+  /**
+   * 通过 MCP langchain-docs 查询官方文档
+   */
+  queryTeamLangchainDocs: (agentId, query, serverName = 'langchain-docs') =>
+    apiPost(`/api/chat/agent/${agentId}/team/langchain-docs`, { query, server_name: serverName }),
+
+  /**
+   * 三模式执行基准对比
+   */
+  benchmarkTeamModes: (agentId, team, iterations = 8, asyncTask = false) =>
+    apiAdminPost(`/api/chat/agent/${agentId}/team/benchmark`, {
+      team,
+      iterations,
+      async_task: asyncTask
+    }),
+
+  /**
+   * 优化智能体系统提示词
+   * @param {string} prompt - 待优化的提示词
+   * @param {string} agentType - 智能体类型（可选）
+   * @returns {Promise} - 优化结果 { optimized_prompt, status }
+   */
+  optimizePrompt: (prompt, agentType = '') =>
+    apiPost('/api/chat/optimize-prompt', { prompt, agent_type: agentType }),
 
   /**
    * 设置默认智能体

@@ -2,7 +2,15 @@
 import { ref, reactive, onMounted, computed, provide } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 import { GithubOutlined } from '@ant-design/icons-vue'
-import { Bot, Waypoints, LibraryBig, BarChart3, CircleCheck, Database } from 'lucide-vue-next'
+import {
+  Bot,
+  Waypoints,
+  LibraryBig,
+  BarChart3,
+  CircleCheck,
+  Database,
+  LayoutGrid
+} from 'lucide-vue-next'
 
 import { useConfigStore } from '@/stores/config'
 import { useDatabaseStore } from '@/stores/database'
@@ -92,6 +100,12 @@ const mainList = [
     path: '/agent',
     icon: Bot,
     activeIcon: Bot
+  },
+  {
+    name: '广场',
+    path: '/agent-square',
+    icon: LayoutGrid,
+    activeIcon: LayoutGrid
   },
   {
     name: '图谱',

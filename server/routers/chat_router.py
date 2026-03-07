@@ -1,3 +1,4 @@
+import textwrap
 import traceback
 import uuid
 
@@ -24,6 +25,8 @@ from src.services.conversation_service import (
 )
 from src.services.feedback_service import get_message_feedback_view, submit_message_feedback_view
 from src.services.history_query_service import get_agent_history_view
+from src.services.task_service import TaskContext, tasker
+from src.services.team_orchestration_service import team_orchestration_service
 from src.repositories.agent_config_repository import AgentConfigRepository
 from src.utils.logging_config import logger
 from src.utils.image_processor import process_uploaded_image
@@ -59,6 +62,34 @@ class AgentConfigUpdate(BaseModel):
     pics: list[str] | None = None
     examples: list[str] | None = None
     config_json: dict | None = None
+
+
+class TeamWizardRequest(BaseModel):
+    message: str
+    draft: dict | None = None
+
+
+class TeamValidationRequest(BaseModel):
+    team: dict
+    strict: bool = True
+
+
+class TeamCreateRequest(BaseModel):
+    name: str
+    team: dict
+    description: str | None = None
+    set_default: bool = False
+
+
+class TeamDocsQueryRequest(BaseModel):
+    query: str
+    server_name: str = "langchain-docs"
+
+
+class TeamBenchmarkRequest(BaseModel):
+    team: dict
+    iterations: int = 8
+    async_task: bool = False
 
 
 chat = APIRouter(prefix="/chat", tags=["chat"])
@@ -134,6 +165,50 @@ async def call(query: str = Body(...), meta: dict = Body(None), current_user: Us
     return {"response": response.content, "request_id": meta["request_id"]}
 
 
+@chat.post("/optimize-prompt")
+async def optimize_prompt(
+    prompt: str = Body(..., description="待优化的提示词"),
+    agent_type: str = Body("", description="智能体类型（可选，用于优化上下文）"),
+    current_user: User = Depends(get_required_user),
+):
+    """使用 LLM 优化智能体系统提示词
+
+    根据用户输入的提示词，生成更清晰、更专业的优化版本。
+    """
+    if not prompt or not prompt.strip():
+        raise HTTPException(status_code=400, detail="提示词不能为空")
+
+    # 构建优化提示词
+    optimization_prompt = textwrap.dedent(f"""
+        你是一个 AI 提示词优化专家。请帮我优化以下智能体系统提示词。
+
+        待优化的提示词:
+        {prompt}
+
+        优化要求：
+        1. 保持原有提示词的核心意图和功能
+        2. 使语言更加清晰、结构化
+        3. 添加必要的角色定义和行为指导
+        4. 明确输入输出格式和限制条件
+        5. 如果原提示词太短或模糊，可以适当扩展
+        6. 确保提示词适合作为 AI 智能体的系统提示词使用
+        7. 优化后的提示词应该简洁有力，通常 5-15 句即可
+        8. 如果原提示词已经很好，可以只做微调或保持不变
+
+        请直接输出优化后的提示词，不要有任何前缀说明或解释。
+    """).strip()
+
+    try:
+        model = select_model()
+        response = await model.call(optimization_prompt)
+        optimized = response.content.strip()
+        logger.debug(f"Optimized prompt: {optimized[:100]}...")
+        return {"optimized_prompt": optimized, "status": "success"}
+    except Exception as e:
+        logger.error(f"优化提示词失败: {e}, {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"优化提示词失败: {e}")
+
+
 @chat.get("/agent")
 async def get_agent(current_user: User = Depends(get_required_user)):
     """获取所有可用智能体的基本信息（需要登录）"""
@@ -181,6 +256,14 @@ async def get_single_agent(agent_id: str, current_user: User = Depends(get_requi
     except Exception as e:
         logger.error(f"获取智能体 {agent_id} 信息出错: {e}")
         raise HTTPException(status_code=500, detail=f"获取智能体信息出错: {str(e)}")
+
+
+@chat.post("/agent/reload")
+async def reload_agents(current_user: User = Depends(get_admin_user)):
+    """重新发现并加载 Agent 插件模块（仅管理员）。"""
+    await agent_manager.reload_all()
+    agents_info = await agent_manager.get_agents_info()
+    return {"success": True, "agents": [agent.get("id") for agent in agents_info]}
 
 
 @chat.get("/agent/{agent_id}/configs")
@@ -349,6 +432,117 @@ async def delete_agent_config_profile(
     return {"success": True}
 
 
+@chat.post("/agent/{agent_id}/team/wizard")
+async def team_wizard_step(
+    agent_id: str,
+    payload: TeamWizardRequest,
+    current_user: User = Depends(get_required_user),
+):
+    if not agent_manager.get_agent(agent_id):
+        raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    if agent_id != "DynamicAgent":
+        raise HTTPException(status_code=422, detail="团队创建仅支持 DynamicAgent")
+
+    return team_orchestration_service.wizard_step(payload.message, payload.draft)
+
+
+@chat.post("/agent/{agent_id}/team/validate")
+async def validate_team_config(
+    agent_id: str,
+    payload: TeamValidationRequest,
+    current_user: User = Depends(get_required_user),
+):
+    if not agent_manager.get_agent(agent_id):
+        raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    if agent_id != "DynamicAgent":
+        raise HTTPException(status_code=422, detail="团队校验仅支持 DynamicAgent")
+
+    return team_orchestration_service.validate_team(payload.team, strict=payload.strict)
+
+
+@chat.post("/agent/{agent_id}/team/create")
+async def create_team_profile(
+    agent_id: str,
+    payload: TeamCreateRequest,
+    current_user: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not current_user.department_id:
+        raise HTTPException(status_code=400, detail="当前用户未绑定部门")
+    if not agent_manager.get_agent(agent_id):
+        raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    if agent_id != "DynamicAgent":
+        raise HTTPException(status_code=422, detail="团队创建仅支持 DynamicAgent")
+
+    runtime_context = team_orchestration_service.build_runtime_context(payload.team, strict=True)
+
+    repo = AgentConfigRepository(db)
+    item = await repo.create(
+        department_id=current_user.department_id,
+        agent_id=agent_id,
+        name=payload.name,
+        description=payload.description,
+        config_json={"context": runtime_context},
+        is_default=payload.set_default,
+        created_by=str(current_user.id),
+    )
+    if payload.set_default:
+        item = await repo.set_default(config=item, updated_by=str(current_user.id))
+
+    return {"config": item.to_dict(), "team_validation": team_orchestration_service.validate_team(payload.team)}
+
+
+@chat.post("/agent/{agent_id}/team/langchain-docs")
+async def query_langchain_docs_with_mcp(
+    agent_id: str,
+    payload: TeamDocsQueryRequest,
+    current_user: User = Depends(get_required_user),
+):
+    if not agent_manager.get_agent(agent_id):
+        raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    if agent_id != "DynamicAgent":
+        raise HTTPException(status_code=422, detail="文档检索仅支持 DynamicAgent")
+
+    try:
+        return await team_orchestration_service.query_langchain_docs(
+            payload.query,
+            server_name=payload.server_name,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@chat.post("/agent/{agent_id}/team/benchmark")
+async def benchmark_team_modes(
+    agent_id: str,
+    payload: TeamBenchmarkRequest,
+    current_user: User = Depends(get_admin_user),
+):
+    if not agent_manager.get_agent(agent_id):
+        raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    if agent_id != "DynamicAgent":
+        raise HTTPException(status_code=422, detail="团队基准仅支持 DynamicAgent")
+
+    if payload.async_task:
+
+        async def _run_task(context: TaskContext):
+            await context.set_progress(5.0, "开始执行多模式基准")
+            result = team_orchestration_service.benchmark_modes(payload.team, iterations=payload.iterations)
+            await context.set_result(result)
+            await context.set_progress(100.0, "基准测试完成")
+
+        task = await tasker.enqueue(
+            name=f"DynamicAgent 多模式基准 ({payload.iterations} 次)",
+            task_type="dynamic_agent_benchmark",
+            payload={"agent_id": agent_id, "iterations": payload.iterations},
+            coroutine=_run_task,
+        )
+        return {"task_id": task.id, "status": "queued"}
+
+    result = team_orchestration_service.benchmark_modes(payload.team, iterations=payload.iterations)
+    return {"result": result}
+
+
 @chat.post("/agent/{agent_id}")
 async def chat_agent(
     agent_id: str,
@@ -486,7 +680,17 @@ async def save_agent_config(
         # === 校验知识库权限 ===
         from src import knowledge_base
 
-        if "knowledges" in config and config["knowledges"]:
+        if agent_id == "DynamicAgent":
+            validation = team_orchestration_service.validate_team(config, strict=False)
+            if validation["errors"]:
+                raise HTTPException(status_code=422, detail=f"团队配置校验失败: {'; '.join(validation['errors'])}")
+
+        requested_kbs = set(config.get("knowledges") or [])
+        for sa in config.get("subagents") or []:
+            if isinstance(sa, dict):
+                requested_kbs.update(sa.get("knowledges") or [])
+
+        if requested_kbs:
             # 获取用户有权访问的知识库名称
             try:
                 user_info = {"role": current_user.role, "department_id": current_user.department_id}
@@ -507,7 +711,7 @@ async def save_agent_config(
                 accessible_kb_names = {row.name for row in rows if row.name}
 
             # 检查配置中的知识库是否都可用
-            invalid_kbs = [kb for kb in config["knowledges"] if kb not in accessible_kb_names]
+            invalid_kbs = [kb for kb in requested_kbs if kb not in accessible_kb_names]
             if invalid_kbs:
                 raise HTTPException(status_code=403, detail=f"无权访问以下知识库: {', '.join(invalid_kbs)}")
         # === 校验结束 ===

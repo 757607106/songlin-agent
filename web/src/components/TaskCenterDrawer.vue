@@ -1,9 +1,9 @@
 <template>
-  <a-drawer 
-    :open="isOpen" 
-    :width="620" 
-    title="任务中心" 
-    placement="right" 
+  <a-drawer
+    :open="isOpen"
+    :width="620"
+    title="任务中心"
+    placement="right"
     @close="handleClose"
     class="task-center-drawer"
     :headerStyle="{ borderBottom: '1px solid var(--gray-200)', padding: '20px 24px' }"
@@ -14,10 +14,14 @@
         <InfoCircleOutlined class="icon" />
         <p>任务执行成功仅代表流程结束，请查看日志确认业务结果。</p>
       </div>
-      
+
       <div class="task-toolbar">
         <div class="task-filter-group">
-          <a-segmented v-model:value="statusFilter" :options="taskFilterOptions" class="custom-segmented" />
+          <a-segmented
+            v-model:value="statusFilter"
+            :options="taskFilterOptions"
+            class="custom-segmented"
+          />
         </div>
         <div class="task-toolbar-actions">
           <a-button type="text" @click="handleRefresh" :loading="loadingState" class="refresh-btn">
@@ -145,10 +149,10 @@ import { Modal } from 'ant-design-vue'
 import { useTaskerStore } from '@/stores/tasker'
 import { storeToRefs } from 'pinia'
 import { formatFullDateTime, formatRelative, parseToShanghai } from '@/utils/time'
-import { 
-  ReloadOutlined, 
-  InfoCircleOutlined, 
-  CloseCircleOutlined, 
+import {
+  ReloadOutlined,
+  InfoCircleOutlined,
+  CloseCircleOutlined,
   ClockCircleOutlined,
   InboxOutlined
 } from '@ant-design/icons-vue'
@@ -303,12 +307,14 @@ function handleDetail(taskId) {
       h('span', { class: 'label' }, '描述：'),
       h('div', { class: 'value description' }, task.message || '-')
     ]),
-    task.error ? h('div', { class: 'detail-row full error' }, [
-      h('span', { class: 'label' }, '错误信息：'),
-      h('div', { class: 'value error-text' }, task.error)
-    ]) : null
+    task.error
+      ? h('div', { class: 'detail-row full error' }, [
+          h('span', { class: 'label' }, '错误信息：'),
+          h('div', { class: 'value error-text' }, task.error)
+        ])
+      : null
   ])
-  
+
   Modal.info({
     title: task.name,
     width: 520,
@@ -417,12 +423,12 @@ function canCancel(task) {
   align-items: center;
   gap: 10px;
   margin-bottom: 20px;
-  
+
   .icon {
     color: var(--primary-500);
     font-size: 16px;
   }
-  
+
   p {
     margin: 0;
     font-size: 13px;
@@ -443,17 +449,17 @@ function canCancel(task) {
   background: var(--gray-200);
   padding: 4px;
   border-radius: 8px;
-  
+
   .ant-segmented-item {
     border-radius: 6px;
   }
-  
+
   .custom-segment-item {
     display: flex;
     align-items: center;
     gap: 6px;
     padding: 0 4px;
-    
+
     .count-badge {
       font-size: 12px;
       background: var(--gray-300);
@@ -462,10 +468,19 @@ function canCancel(task) {
       border-radius: 10px;
       min-width: 20px;
       text-align: center;
-      
-      &.active { background: var(--primary-100); color: var(--primary-600); }
-      &.success { background: var(--success-100); color: var(--success-600); }
-      &.error { background: var(--error-100); color: var(--error-600); }
+
+      &.active {
+        background: var(--primary-100);
+        color: var(--primary-600);
+      }
+      &.success {
+        background: var(--success-100);
+        color: var(--success-600);
+      }
+      &.error {
+        background: var(--error-100);
+        color: var(--error-600);
+      }
     }
   }
 }
@@ -481,12 +496,13 @@ function canCancel(task) {
   gap: 16px;
   overflow-y: auto;
   padding-right: 4px;
+  padding-bottom: 24px;
   flex: 1;
-  
+
   &::-webkit-scrollbar {
     width: 6px;
   }
-  
+
   &::-webkit-scrollbar-thumb {
     background: var(--gray-300);
     border-radius: 3px;
@@ -500,21 +516,24 @@ function canCancel(task) {
   transition: all 0.2s ease;
   position: relative;
   overflow: hidden;
-  
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+
   &:hover {
     border-color: var(--primary-200);
     box-shadow: 0 4px 12px var(--shadow-color);
     transform: translateY(-2px);
   }
-  
+
   &.is-active {
     border-left: 4px solid var(--primary-500);
   }
-  
+
   &.is-success {
     border-left: 4px solid var(--success-500);
   }
-  
+
   &.is-failed {
     border-left: 4px solid var(--error-500);
   }
@@ -526,14 +545,14 @@ function canCancel(task) {
 
 .task-card-header {
   margin-bottom: 12px;
-  
+
   .header-top {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 8px;
   }
-  
+
   .task-type-badge {
     font-size: 12px;
     color: var(--gray-600);
@@ -541,79 +560,100 @@ function canCancel(task) {
     padding: 2px 8px;
     border-radius: 4px;
   }
-  
+
   .task-status-badge {
     font-size: 12px;
     font-weight: 500;
     display: flex;
     align-items: center;
     gap: 6px;
-    
+
     .dot {
       width: 6px;
       height: 6px;
       border-radius: 50%;
     }
-    
-    &.pending, &.queued { 
-      color: var(--primary-600); 
-      .dot { background: var(--primary-500); }
+
+    &.pending,
+    &.queued {
+      color: var(--primary-600);
+      .dot {
+        background: var(--primary-500);
+      }
     }
-    &.running { 
-      color: var(--primary-600); 
-      .dot { 
-        background: var(--primary-500); 
+    &.running {
+      color: var(--primary-600);
+      .dot {
+        background: var(--primary-500);
         animation: pulse 1.5s infinite;
       }
     }
-    &.success { 
-      color: var(--success-600); 
-      .dot { background: var(--success-500); }
+    &.success {
+      color: var(--success-600);
+      .dot {
+        background: var(--success-500);
+      }
     }
-    &.failed { 
-      color: var(--error-600); 
-      .dot { background: var(--error-500); }
+    &.failed {
+      color: var(--error-600);
+      .dot {
+        background: var(--error-500);
+      }
     }
-    &.cancelled { 
-      color: var(--gray-500); 
-      .dot { background: var(--gray-400); }
+    &.cancelled {
+      color: var(--gray-500);
+      .dot {
+        background: var(--gray-400);
+      }
     }
   }
-  
+
   .task-title {
     font-size: 16px;
     font-weight: 600;
     color: var(--gray-900);
-    margin-bottom: 6px;
-    line-height: 1.4;
+    margin-bottom: 8px;
+    line-height: 1.5;
+    word-break: break-word;
   }
-  
+
   .task-meta {
     font-size: 12px;
     color: var(--gray-500);
     display: flex;
     align-items: center;
-    
-    .id { font-family: monospace; }
-    .separator { margin: 0 6px; color: var(--gray-300); }
+    flex-wrap: wrap;
+    gap: 4px 0;
+
+    .id {
+      font-family: monospace;
+    }
+    .separator {
+      margin: 0 6px;
+      color: var(--gray-300);
+    }
   }
 }
 
 .task-progress-wrapper {
   margin-top: 12px;
-  
+
   .progress-info {
     display: flex;
     justify-content: space-between;
     font-size: 12px;
     color: var(--gray-600);
     margin-bottom: 4px;
-    
-    .percent { font-weight: 600; color: var(--primary-600); }
+
+    .percent {
+      font-weight: 600;
+      color: var(--primary-600);
+    }
   }
 }
 
-.task-message-box, .task-error-box {
+.task-message-box,
+.task-error-box {
   margin-top: 12px;
   padding: 10px;
   border-radius: 6px;
@@ -621,20 +661,27 @@ function canCancel(task) {
   display: flex;
   gap: 8px;
   line-height: 1.5;
-  
-  .icon { flex-shrink: 0; margin-top: 2px; }
+
+  .icon {
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
 }
 
 .task-message-box {
   background: var(--gray-50);
   color: var(--gray-700);
-  .icon { color: var(--primary-500); }
+  .icon {
+    color: var(--primary-500);
+  }
 }
 
 .task-error-box {
   background: var(--error-50);
   color: var(--error-700);
-  .icon { color: var(--error-500); }
+  .icon {
+    color: var(--error-500);
+  }
 }
 
 .task-card-footer {
@@ -644,7 +691,7 @@ function canCancel(task) {
   padding: 10px 16px;
   border-top: 1px solid var(--gray-100);
   background: var(--gray-25);
-  
+
   .footer-time {
     font-size: 12px;
     color: var(--gray-500);
@@ -652,18 +699,25 @@ function canCancel(task) {
     align-items: center;
     gap: 6px;
   }
-  
+
   .footer-actions {
     display: flex;
     gap: 8px;
-    
+
     :deep(.ant-btn) {
       padding: 0 4px;
       height: 24px;
       font-size: 12px;
-      
-      &:hover { background: rgba(0,0,0,0.05); }
-      &.delete-btn { color: var(--gray-500); &:hover { color: var(--error-500); } }
+
+      &:hover {
+        background: rgba(0, 0, 0, 0.05);
+      }
+      &.delete-btn {
+        color: var(--gray-500);
+        &:hover {
+          color: var(--error-500);
+        }
+      }
     }
   }
 }
@@ -675,20 +729,20 @@ function canCancel(task) {
   justify-content: center;
   padding: 60px 20px;
   text-align: center;
-  
+
   .empty-icon {
     font-size: 48px;
     color: var(--gray-300);
     margin-bottom: 16px;
   }
-  
+
   .empty-title {
     font-size: 18px;
     font-weight: 600;
     color: var(--gray-800);
     margin-bottom: 8px;
   }
-  
+
   .empty-desc {
     font-size: 14px;
     color: var(--gray-500);
@@ -697,9 +751,18 @@ function canCancel(task) {
 }
 
 @keyframes pulse {
-  0% { transform: scale(0.95); opacity: 0.8; }
-  50% { transform: scale(1.1); opacity: 1; }
-  100% { transform: scale(0.95); opacity: 0.8; }
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
 }
 
 // Modal Styles
@@ -707,12 +770,25 @@ function canCancel(task) {
   .detail-row {
     display: flex;
     margin-bottom: 12px;
-    
-    .label { width: 80px; color: var(--gray-500); font-weight: 500; flex-shrink: 0; }
-    .value { color: var(--gray-900); flex: 1; }
-    
-    &.full { flex-direction: column; .label { margin-bottom: 4px; } }
-    
+
+    .label {
+      width: 80px;
+      color: var(--gray-500);
+      font-weight: 500;
+      flex-shrink: 0;
+    }
+    .value {
+      color: var(--gray-900);
+      flex: 1;
+    }
+
+    &.full {
+      flex-direction: column;
+      .label {
+        margin-bottom: 4px;
+      }
+    }
+
     .description {
       background: var(--gray-50);
       padding: 12px;
@@ -722,7 +798,7 @@ function canCancel(task) {
       max-height: 200px;
       overflow-y: auto;
     }
-    
+
     &.error {
       .error-text {
         background: var(--error-50);

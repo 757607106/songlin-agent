@@ -78,7 +78,9 @@
                   <a-select-option value="deleted">已删除</a-select-option>
                   <a-select-option value="all">全部</a-select-option>
                 </a-select>
-                <a-button size="small" @click="loadConversations" :loading="loading"> 刷新 </a-button>
+                <a-button size="small" @click="loadConversations" :loading="loading">
+                  刷新
+                </a-button>
                 <a-button size="small" @click="feedbackModal.show()"> 反馈详情 </a-button>
               </a-space>
             </div>
@@ -391,7 +393,7 @@ onUnmounted(() => {
     display: flex;
     flex-direction: column;
     min-height: 320px;
-    
+
     // 子组件应该自己包含 glass-panel 类或者类似样式
     :deep(.glass-panel),
     :deep(.ant-card) {
@@ -401,7 +403,7 @@ onUnmounted(() => {
       background: var(--gray-0);
       box-shadow: 0 4px 6px -1px var(--shadow-color);
       transition: all 0.3s ease;
-      
+
       &:hover {
         transform: translateY(-2px);
         box-shadow: 0 10px 15px -3px var(--shadow-color-lg);
@@ -448,14 +450,14 @@ onUnmounted(() => {
   flex-direction: column;
   padding: 0;
   height: 100%;
-  
+
   .panel-header {
     padding: 16px 24px;
     border-bottom: 1px solid var(--gray-200);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    
+
     .title {
       font-size: 16px;
       font-weight: 600;
@@ -463,7 +465,7 @@ onUnmounted(() => {
       margin: 0;
     }
   }
-  
+
   .panel-body {
     padding: 16px 24px;
     flex: 1;
@@ -475,7 +477,7 @@ onUnmounted(() => {
   color: var(--primary-600);
   font-weight: 500;
   transition: color 0.2s;
-  
+
   &:hover {
     color: var(--primary-700);
     text-decoration: underline;
@@ -504,14 +506,31 @@ onUnmounted(() => {
 @media (max-width: 1200px) {
   .dashboard-grid {
     grid-template-columns: 1fr 1fr;
-    
+
     .grid-item {
-      &.call-stats { grid-column: 1 / 3; }
-      &.user-stats { grid-column: 1 / 2; grid-row: 2 / 3; }
-      &.agent-stats { grid-column: 2 / 3; grid-row: 2 / 3; }
-      &.tool-stats { grid-column: 1 / 2; grid-row: 3 / 4; }
-      &.knowledge-stats { grid-column: 2 / 3; grid-row: 3 / 4; }
-      &.conversations { grid-column: 1 / 3; grid-row: 4 / 5; }
+      &.call-stats {
+        grid-column: 1 / 3;
+      }
+      &.user-stats {
+        grid-column: 1 / 2;
+        grid-row: 2 / 3;
+      }
+      &.agent-stats {
+        grid-column: 2 / 3;
+        grid-row: 2 / 3;
+      }
+      &.tool-stats {
+        grid-column: 1 / 2;
+        grid-row: 3 / 4;
+      }
+      &.knowledge-stats {
+        grid-column: 2 / 3;
+        grid-row: 3 / 4;
+      }
+      &.conversations {
+        grid-column: 1 / 3;
+        grid-row: 4 / 5;
+      }
     }
   }
 }

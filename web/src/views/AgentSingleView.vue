@@ -155,6 +155,19 @@ onMounted(async () => {
       console.error('初始化智能体 store 失败:', error)
     }
   }
+
+  // 支持从智能体广场跳转时指定 config_id
+  const configId = route.query.config_id
+  if (configId && agentId.value) {
+    try {
+      await agentStore.selectAgent(agentId.value)
+      await agentStore.fetchAgentConfigs(agentId.value)
+      agentStore.selectAgentConfig(Number(configId))
+      await agentStore.loadAgentConfig(agentId.value, Number(configId))
+    } catch (error) {
+      console.error('加载指定配置失败:', error)
+    }
+  }
 })
 </script>
 

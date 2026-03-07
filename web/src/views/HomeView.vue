@@ -22,7 +22,7 @@
         <div class="blob blob-2"></div>
         <div class="blob blob-3"></div>
       </div>
-      
+
       <div class="hero-section">
         <div class="glass-header">
           <div class="logo">
@@ -73,11 +73,17 @@
 
         <div class="hero-layout">
           <div class="hero-content">
-            <h1 class="title animate-slide-up" style="animation-delay: 0.1s">{{ infoStore.branding.title }}</h1>
-            <p class="subtitle animate-slide-up" style="animation-delay: 0.2s">{{ infoStore.branding.subtitle }}</p>
+            <h1 class="title animate-slide-up" style="animation-delay: 0.1s">
+              {{ infoStore.branding.title }}
+            </h1>
+            <p class="subtitle animate-slide-up" style="animation-delay: 0.2s">
+              {{ infoStore.branding.subtitle }}
+            </p>
             <!-- <p class="description">{{ infoStore.branding.description }}</p> -->
             <div class="hero-actions animate-slide-up" style="animation-delay: 0.3s">
-              <button class="button-base primary btn-primary-glow" @click="goToChat">开始对话</button>
+              <button class="button-base primary btn-primary-glow" @click="goToChat">
+                开始对话
+              </button>
               <a
                 class="button-base secondary"
                 href="https://xerrors.github.io/Yuxi-Know/"
@@ -86,7 +92,11 @@
               >
             </div>
           </div>
-          <div class="insight-panel glass-panel animate-slide-up" v-if="featureCards.length" style="animation-delay: 0.4s">
+          <div
+            class="insight-panel glass-panel animate-slide-up"
+            v-if="featureCards.length"
+            style="animation-delay: 0.4s"
+          >
             <div class="stat-card" v-for="card in featureCards" :key="card.label">
               <div class="stat-headline">
                 <span class="stat-icon" v-if="card.icon">
@@ -101,7 +111,11 @@
         </div>
       </div>
 
-      <div class="section action-section animate-slide-up" v-if="actionLinks.length" style="animation-delay: 0.5s">
+      <div
+        class="section action-section animate-slide-up"
+        v-if="actionLinks.length"
+        style="animation-delay: 0.5s"
+      >
         <div class="action-grid">
           <a
             v-for="action in actionLinks"
@@ -370,8 +384,13 @@ const actionLinks = computed(() => {
 }
 
 @keyframes float {
-  0%, 100% { transform: translate(0, 0); }
-  50% { transform: translate(30px, -30px); }
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(30px, -30px);
+  }
 }
 
 // 加载中状态
@@ -481,7 +500,7 @@ const actionLinks = computed(() => {
   padding: 0.6rem;
   border-radius: 50%;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  
+
   &:hover {
     color: var(--gray-900);
     background: var(--gray-100);
@@ -526,7 +545,12 @@ const actionLinks = computed(() => {
   font-size: clamp(3rem, 5vw, 4.5rem);
   font-weight: 800;
   margin: 0;
-  background: linear-gradient(135deg, var(--main-900) 0%, var(--main-600) 50%, var(--color-secondary-500) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--main-900) 0%,
+    var(--main-600) 50%,
+    var(--color-secondary-500) 100%
+  );
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -577,7 +601,7 @@ const actionLinks = computed(() => {
     transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(8, 145, 178, 0.23);
   }
-  
+
   &:active {
     transform: translateY(0);
   }
@@ -615,7 +639,7 @@ const actionLinks = computed(() => {
   padding: 1rem;
   border-radius: 16px;
   transition: background 0.2s ease;
-  
+
   &:hover {
     background: rgba(255, 255, 255, 0.5);
   }
@@ -636,7 +660,7 @@ const actionLinks = computed(() => {
   align-items: center;
   justify-content: center;
   color: var(--main-600);
-  
+
   :deep(svg) {
     width: 24px;
     height: 24px;
@@ -693,14 +717,14 @@ const actionLinks = computed(() => {
   background: white;
   border: 1px solid var(--gray-100);
   box-shadow: var(--shadow-sm);
-  
+
   &:hover {
     border-color: var(--main-200);
     .action-icon {
       background: var(--main-600);
       color: white;
     }
-    
+
     .action-title {
       color: var(--main-700);
     }
@@ -776,7 +800,7 @@ const actionLinks = computed(() => {
   .nav-links {
     display: none; /* Consider a mobile menu for smaller screens */
   }
-  
+
   .hero-section {
     padding: 6rem 1.5rem 2rem;
   }
@@ -789,7 +813,7 @@ const actionLinks = computed(() => {
     grid-template-columns: 1fr;
     gap: 3rem;
   }
-  
+
   .insight-panel {
     padding: 1.5rem;
   }

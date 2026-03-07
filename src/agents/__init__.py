@@ -52,6 +52,8 @@ class AgentManager(metaclass=SingletonMeta):
         return list(self._instances.values())
 
     async def reload_all(self):
+        # 重新发现新加入的 Agent 模块，支持插件式动态扩展
+        self.auto_discover_agents()
         for agent_id in self._classes.keys():
             self.get_agent(agent_id, reload=True)
 

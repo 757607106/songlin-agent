@@ -83,7 +83,7 @@
                   查询
                 </a-button>
               </a-input-group>
-              
+
               <a-button @click="loadSampleNodes" :loading="graph.fetching" class="refresh-btn">
                 <template #icon><ReloadOutlined /></template>
               </a-button>
@@ -133,7 +133,7 @@
           show-icon
           class="upload-alert"
         />
-        
+
         <div class="upload-config-panel">
           <div class="config-item">
             <label class="config-label">嵌入模型</label>
@@ -148,7 +148,7 @@
               </div>
             </div>
           </div>
-          
+
           <div class="config-item">
             <label class="config-label">批处理大小</label>
             <div class="config-content">
@@ -661,7 +661,7 @@ const goToDatabasePage = () => {
     font-weight: 500;
     color: var(--gray-700);
   }
-  
+
   .db-select {
     width: 240px;
   }
@@ -681,7 +681,7 @@ const goToDatabasePage = () => {
   background: var(--gray-50);
   border-radius: 20px;
   border: 1px solid var(--gray-200);
-  
+
   .status-text {
     margin-left: 8px;
     font-size: 12px;
@@ -712,9 +712,18 @@ const goToDatabasePage = () => {
 }
 
 @keyframes pulse {
-  0% { transform: scale(0.8); opacity: 0.5; }
-  50% { transform: scale(1.2); opacity: 1; }
-  100% { transform: scale(0.8); opacity: 0.5; }
+  0% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
 }
 
 .container-outter {
@@ -727,7 +736,7 @@ const goToDatabasePage = () => {
   display: flex;
   flex-direction: column;
   position: relative;
-  
+
   &.glass-panel {
     background: var(--gray-0);
     border: none;
@@ -744,45 +753,47 @@ const goToDatabasePage = () => {
   justify-content: space-between;
   align-items: flex-start;
   pointer-events: none; // 让下方 canvas 可点击
-  
-  .toolbar-left, .toolbar-right {
+
+  .toolbar-left,
+  .toolbar-right {
     pointer-events: auto;
     display: flex;
     gap: 12px;
   }
-  
+
   .search-group {
     display: flex;
     box-shadow: var(--shadow-2);
     border-radius: 8px;
-    
+
     .search-input {
       width: 280px;
       text-align: left;
-      
+
       :deep(.ant-input) {
         border-top-left-radius: 8px;
         border-bottom-left-radius: 8px;
       }
     }
-    
+
     .count-input {
       width: 80px;
       text-align: center;
     }
-    
+
     :deep(.ant-btn) {
       border-top-right-radius: 8px;
       border-bottom-right-radius: 8px;
     }
   }
-  
-  .refresh-btn, .export-btn {
+
+  .refresh-btn,
+  .export-btn {
     box-shadow: var(--shadow-2);
     border-radius: 8px;
     border: 1px solid var(--gray-200);
     background: var(--gray-0);
-    
+
     &:hover {
       color: var(--main-600);
       border-color: var(--main-300);
@@ -803,26 +814,26 @@ const goToDatabasePage = () => {
   .upload-container {
     padding: 0;
   }
-  
+
   .upload-alert {
     margin-bottom: 20px;
   }
-  
+
   .upload-config-panel {
     background: var(--gray-50);
     padding: 16px;
     border-radius: 8px;
     margin-bottom: 20px;
     border: 1px solid var(--gray-100);
-    
+
     .config-item {
       display: flex;
       margin-bottom: 12px;
-      
+
       &:last-child {
         margin-bottom: 0;
       }
-      
+
       .config-label {
         width: 100px;
         flex-shrink: 0;
@@ -830,11 +841,11 @@ const goToDatabasePage = () => {
         color: var(--gray-700);
         padding-top: 5px;
       }
-      
+
       .config-content {
         flex: 1;
       }
-      
+
       .config-hint {
         font-size: 12px;
         color: var(--gray-500);
@@ -842,22 +853,22 @@ const goToDatabasePage = () => {
       }
     }
   }
-  
+
   .upload-area {
     background: var(--gray-0);
     border-radius: 8px;
     padding: 20px 0;
-    
+
     :deep(.ant-upload-drag-icon) {
       margin-bottom: 12px;
       color: var(--main-400);
     }
-    
+
     :deep(.ant-upload-text) {
       font-size: 15px;
       color: var(--gray-800);
     }
-    
+
     :deep(.ant-upload-hint) {
       color: var(--gray-500);
     }

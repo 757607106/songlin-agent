@@ -57,12 +57,20 @@
             <a-row :gutter="16">
               <a-col :span="12">
                 <a-form-item label="用户名">
-                  <a-input v-model:value="formData.username" placeholder="请输入用户名" size="large" />
+                  <a-input
+                    v-model:value="formData.username"
+                    placeholder="请输入用户名"
+                    size="large"
+                  />
                 </a-form-item>
               </a-col>
               <a-col :span="12">
                 <a-form-item label="密码">
-                  <a-input-password v-model:value="formData.password" placeholder="请输入密码" size="large" />
+                  <a-input-password
+                    v-model:value="formData.password"
+                    placeholder="请输入密码"
+                    size="large"
+                  />
                 </a-form-item>
               </a-col>
             </a-row>
@@ -85,7 +93,13 @@
         @cancel="closeSchemaModal"
         width="95vw"
         :style="{ maxWidth: '1600px', top: '20px' }"
-        :body-style="{ height: 'calc(100vh - 40px)', padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }"
+        :body-style="{
+          height: 'calc(100vh - 40px)',
+          padding: '0',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column'
+        }"
         :footer="null"
         class="full-screen-modal"
         wrapClassName="full-screen-modal-wrap"
@@ -104,7 +118,7 @@
           <a-spin size="large" />
           <p>正在加载 Schema 信息...</p>
         </div>
-        
+
         <div v-else-if="state.schema" class="schema-content">
           <a-tabs v-model:activeKey="state.activeTab" class="schema-tabs" type="card">
             <a-tab-pane key="diagram" tab="ER 关系图">
@@ -125,7 +139,9 @@
                     :header="table.table_name"
                   >
                     <template #extra>
-                      <span class="table-comment-preview">{{ table.table_comment || '无注释' }}</span>
+                      <span class="table-comment-preview">{{
+                        table.table_comment || '无注释'
+                      }}</span>
                     </template>
                     <div class="table-detail-wrapper">
                       <p v-if="table.table_comment" class="table-comment-full">
@@ -163,7 +179,8 @@
                   <div class="info-box">
                     <InfoCircleOutlined class="icon" />
                     <p class="mappings-desc">
-                      值映射用于将自然语言表达转换为数据库中的实际值，提高 SQL 生成准确性。例如将 "男" 映射为 "1"。
+                      值映射用于将自然语言表达转换为数据库中的实际值，提高 SQL 生成准确性。例如将
+                      "男" 映射为 "1"。
                     </p>
                   </div>
                   <a-button type="primary" @click="openMappingModal">
@@ -300,7 +317,12 @@
       >
         <a-form :model="mappingForm" layout="vertical" class="custom-form">
           <a-form-item label="表名" required>
-            <a-select v-model:value="mappingForm.table_name" placeholder="请选择表" show-search size="large">
+            <a-select
+              v-model:value="mappingForm.table_name"
+              placeholder="请选择表"
+              show-search
+              size="large"
+            >
               <a-select-option
                 v-for="table in state.schema?.tables || []"
                 :key="table.table_name"
@@ -384,14 +406,18 @@
               </div>
               <span class="name" :title="conn.name">{{ conn.name }}</span>
             </div>
-            <a-tag :color="getDbTypeColor(conn.db_type)" class="db-type-tag">{{ conn.db_type.toUpperCase() }}</a-tag>
+            <a-tag :color="getDbTypeColor(conn.db_type)" class="db-type-tag">{{
+              conn.db_type.toUpperCase()
+            }}</a-tag>
           </div>
 
           <div class="card-body">
             <div class="info-row">
               <span class="label">主机</span>
               <span class="value" :title="conn.host || 'localhost'"
-                >{{ conn.host || 'localhost' }}:{{ conn.port || getDefaultPort(conn.db_type) }}</span
+                >{{ conn.host || 'localhost' }}:{{
+                  conn.port || getDefaultPort(conn.db_type)
+                }}</span
               >
             </div>
             <div class="info-row">
@@ -422,7 +448,9 @@
               </a-button>
               <template #overlay>
                 <a-menu class="custom-dropdown-menu">
-                  <a-menu-item @click="editConnection(conn)"> <EditOutlined /> 编辑连接 </a-menu-item>
+                  <a-menu-item @click="editConnection(conn)">
+                    <EditOutlined /> 编辑连接
+                  </a-menu-item>
                   <a-menu-item @click="discoverSchema(conn)">
                     <SyncOutlined /> 同步 Schema
                   </a-menu-item>
@@ -872,7 +900,7 @@ function getDefaultPort(dbType) {
   padding: 24px;
   height: 100%;
   overflow: hidden;
-  
+
   .glass-panel {
     height: 100%;
     display: flex;
@@ -899,7 +927,7 @@ function getDefaultPort(dbType) {
   justify-content: center;
   text-align: center;
   padding: 40px;
-  
+
   .empty-icon-wrapper {
     width: 80px;
     height: 80px;
@@ -909,20 +937,20 @@ function getDefaultPort(dbType) {
     align-items: center;
     justify-content: center;
     margin-bottom: 24px;
-    
+
     .empty-icon {
       font-size: 40px;
       color: var(--gray-400);
     }
   }
-  
+
   .empty-title {
     font-size: 20px;
     font-weight: 600;
     color: var(--gray-900);
     margin: 0 0 12px 0;
   }
-  
+
   .empty-description {
     font-size: 14px;
     color: var(--gray-500);
@@ -949,44 +977,52 @@ function getDefaultPort(dbType) {
   display: flex;
   flex-direction: column;
   position: relative;
-  
+
   &:hover {
     transform: translateY(-4px);
     box-shadow: 0 12px 24px -8px var(--shadow-color-lg);
     border-color: var(--primary-200);
-    
+
     .card-footer {
       background: var(--gray-50);
       opacity: 1;
     }
   }
-  
+
   &.inactive {
     opacity: 0.7;
     filter: grayscale(0.8);
   }
-  
+
   .card-status-bar {
     height: 4px;
     width: 100%;
-    
-    &.blue { background: #1677ff; }
-    &.green { background: #52c41a; }
-    &.orange { background: #fa8c16; }
-    &.default { background: var(--gray-400); }
+
+    &.blue {
+      background: #1677ff;
+    }
+    &.green {
+      background: #52c41a;
+    }
+    &.orange {
+      background: #fa8c16;
+    }
+    &.default {
+      background: var(--gray-400);
+    }
   }
-  
+
   .card-header {
     padding: 20px 20px 12px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    
+
     .card-title {
       display: flex;
       align-items: center;
       gap: 12px;
-      
+
       .db-icon-wrapper {
         width: 36px;
         height: 36px;
@@ -995,13 +1031,25 @@ function getDefaultPort(dbType) {
         align-items: center;
         justify-content: center;
         font-size: 18px;
-        
-        &.blue { background: #e6f4ff; color: #1677ff; }
-        &.green { background: #f6ffed; color: #52c41a; }
-        &.orange { background: #fff7e6; color: #fa8c16; }
-        &.default { background: var(--gray-100); color: var(--gray-600); }
+
+        &.blue {
+          background: #e6f4ff;
+          color: #1677ff;
+        }
+        &.green {
+          background: #f6ffed;
+          color: #52c41a;
+        }
+        &.orange {
+          background: #fff7e6;
+          color: #fa8c16;
+        }
+        &.default {
+          background: var(--gray-100);
+          color: var(--gray-600);
+        }
       }
-      
+
       .name {
         font-size: 16px;
         font-weight: 600;
@@ -1012,7 +1060,7 @@ function getDefaultPort(dbType) {
         max-width: 140px;
       }
     }
-    
+
     .db-type-tag {
       margin: 0;
       border: none;
@@ -1020,27 +1068,27 @@ function getDefaultPort(dbType) {
       font-size: 12px;
     }
   }
-  
+
   .card-body {
     padding: 0 20px 20px;
     flex: 1;
-    
+
     .info-row {
       display: flex;
       margin-bottom: 8px;
       font-size: 13px;
       line-height: 1.6;
-      
+
       &:last-child {
         margin-bottom: 0;
       }
-      
+
       .label {
         color: var(--gray-500);
         width: 60px;
         flex-shrink: 0;
       }
-      
+
       .value {
         color: var(--gray-700);
         font-family: var(--font-family-mono);
@@ -1050,7 +1098,7 @@ function getDefaultPort(dbType) {
       }
     }
   }
-  
+
   .card-footer {
     padding: 12px 20px;
     border-top: 1px solid var(--gray-100);
@@ -1059,16 +1107,16 @@ function getDefaultPort(dbType) {
     align-items: center;
     background: var(--gray-0);
     transition: background 0.3s;
-    
+
     .action-btn {
       color: var(--gray-600);
-      
+
       &:hover {
         color: var(--primary-600);
         background: var(--primary-50);
       }
     }
-    
+
     .divider {
       width: 1px;
       height: 16px;
@@ -1085,7 +1133,7 @@ function getDefaultPort(dbType) {
   padding: 16px 24px;
   border-bottom: 1px solid var(--gray-200);
   background: var(--gray-0);
-  
+
   .header-title {
     display: flex;
     align-items: center;
@@ -1093,12 +1141,12 @@ function getDefaultPort(dbType) {
     font-size: 18px;
     font-weight: 600;
     color: var(--gray-900);
-    
+
     .icon {
       color: var(--primary-500);
     }
   }
-  
+
   .close-btn {
     color: var(--gray-500);
     &:hover {
@@ -1120,14 +1168,14 @@ function getDefaultPort(dbType) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  
+
   :deep(.ant-tabs-nav) {
     margin: 0;
     padding: 12px 24px 0;
     background: var(--gray-50);
     border-bottom: 1px solid var(--gray-200);
   }
-  
+
   :deep(.ant-tabs-content) {
     flex: 1;
     overflow: hidden;
@@ -1149,7 +1197,7 @@ function getDefaultPort(dbType) {
 
 .custom-collapse {
   background: transparent;
-  
+
   :deep(.ant-collapse-item) {
     background: var(--gray-0);
     border: 1px solid var(--gray-200);
@@ -1157,13 +1205,13 @@ function getDefaultPort(dbType) {
     margin-bottom: 12px;
     overflow: hidden;
   }
-  
+
   :deep(.ant-collapse-header) {
     padding: 12px 16px !important;
     background: var(--gray-0);
     font-weight: 600;
   }
-  
+
   .table-comment-preview {
     color: var(--gray-500);
     font-size: 13px;
@@ -1195,17 +1243,17 @@ function getDefaultPort(dbType) {
   padding: 16px;
   border-radius: 12px;
   border: 1px solid var(--gray-200);
-  
+
   .info-box {
     display: flex;
     gap: 12px;
-    
+
     .icon {
       font-size: 20px;
       color: var(--primary-500);
       margin-top: 2px;
     }
-    
+
     .mappings-desc {
       margin: 0;
       color: var(--gray-600);
@@ -1214,7 +1262,7 @@ function getDefaultPort(dbType) {
       max-width: 600px;
     }
   }
-  
+
   .action-group {
     display: flex;
     gap: 12px;

@@ -174,6 +174,23 @@ async def get_graph(self):
 
 MCP (Model Context Protocol) 服务的配置现已全面支持通过系统管理界面或 API 进行动态管理，数据持久化存储在数据库中。`src/services/mcp_service.py` 仅作为核心逻辑层和默认配置的存放处，不再建议直接修改代码来添加服务器。
 
+## DynamicAgent 团队编排
+
+`DynamicAgent` 支持三种协作模式：
+
+- `disabled`：单智能体
+- `supervisor`：子图可观测调度
+- `deep_agents`：并行执行优先
+
+新版本提供团队级 API：
+
+- `POST /api/chat/agent/DynamicAgent/team/wizard`：自然语言草稿生成
+- `POST /api/chat/agent/DynamicAgent/team/validate`：职责/依赖/通信校验
+- `POST /api/chat/agent/DynamicAgent/team/create`：保存为配置
+- `POST /api/chat/agent/DynamicAgent/team/benchmark`：三模式对比
+
+详见 [多 Agent 团队编排](/latest/advanced/team-orchestration)。
+
 ### MCP 服务器管理
 
 系统提供了完善的 API (`/system/mcp-servers`) 和管理界面来执行 MCP 服务器的增删改查操作。

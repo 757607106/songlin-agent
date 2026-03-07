@@ -10,5 +10,8 @@ from src.config import config as config  # noqa: E402
 if os.getenv("YUXI_SKIP_APP_INIT") != "1":
     from src.knowledge import graph_base as graph_base  # noqa: E402
     from src.knowledge import knowledge_base as knowledge_base  # noqa: E402
+else:
+    graph_base = None
+    knowledge_base = None
 
 executor = ThreadPoolExecutor()  # noqa: E402

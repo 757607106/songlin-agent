@@ -62,16 +62,28 @@
                   class="system-prompt-container"
                 >
                   <!-- 编辑模式 -->
-                  <a-textarea
-                    v-if="systemPromptEditMode"
-                    :value="agentConfig[key]"
-                    @update:value="(val) => agentStore.updateAgentConfig({ [key]: val })"
-                    :rows="10"
-                    :placeholder="getPlaceholder(key, value)"
-                    class="system-prompt-input"
-                    @blur="systemPromptEditMode = false"
-                    ref="systemPromptTextarea"
-                  />
+                  <div class="prompt-edit-wrapper" v-if="systemPromptEditMode">
+                    <a-textarea
+                      :value="agentConfig[key]"
+                      @update:value="(val) => agentStore.updateAgentConfig({ [key]: val })"
+                      :rows="10"
+                      :placeholder="getPlaceholder(key, value)"
+                      class="system-prompt-input"
+                      @blur="handlePromptBlur"
+                      ref="systemPromptTextarea"
+                    />
+                    <a-button
+                      type="link"
+                      size="small"
+                      class="optimize-prompt-btn"
+                      :loading="optimizingPrompt"
+                      @click.stop="optimizePrompt(key)"
+                      :disabled="!agentConfig[key]?.trim()"
+                    >
+                      <Sparkles :size="14" />
+                      优化
+                    </a-button>
+                  </div>
                   <!-- 显示模式 -->
                   <div v-else class="system-prompt-display" @click="enterEditMode">
                     <div
@@ -138,6 +150,13 @@
                     {{ conn.name }} ({{ conn.db_type }})
                   </a-select-option>
                 </a-select>
+
+                <!-- 子智能体编辑器 -->
+                <SubagentEditor
+                  v-else-if="value.template_metadata.kind === 'subagents'"
+                  :modelValue="agentConfig[key] || []"
+                  @update:modelValue="(val) => agentStore.updateAgentConfig({ [key]: val })"
+                />
 
                 <!-- 布尔类型 -->
                 <a-switch
@@ -385,8 +404,10 @@
 <script setup>
 import { ref, computed, nextTick, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { X, Trash2, Check, Plus, Search, Star } from 'lucide-vue-next'
+import { X, Trash2, Check, Plus, Search, Star, Sparkles } from 'lucide-vue-next'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
+import SubagentEditor from '@/components/SubagentEditor.vue'
+import { agentApi } from '@/apis/agent_api'
 import { useAgentStore } from '@/stores/agent'
 import { useUserStore } from '@/stores/user'
 import { useDatabaseStore } from '@/stores/database'
@@ -449,6 +470,7 @@ const currentConfigKey = ref(null)
 const tempSelectedValues = ref([])
 const selectionSearchText = ref('')
 const systemPromptEditMode = ref(false)
+const optimizingPrompt = ref(false)
 const activeTab = ref('basic')
 
 const isEmptyConfig = computed(() => {
@@ -772,6 +794,32 @@ const enterEditMode = () => {
   })
 }
 
+const handlePromptBlur = (event) => {
+  // 如果点击的是优化按钮，不要关闭编辑模式
+  const relatedTarget = event.relatedTarget
+  if (relatedTarget && relatedTarget.closest('.optimize-prompt-btn')) {
+    return
+  }
+  systemPromptEditMode.value = false
+}
+
+const optimizePrompt = async (key) => {
+  if (!agentConfig.value[key]?.trim()) return
+  optimizingPrompt.value = true
+  try {
+    const res = await agentApi.optimizePrompt(agentConfig.value[key])
+    if (res.optimized_prompt) {
+      agentStore.updateAgentConfig({ [key]: res.optimized_prompt })
+      message.success('提示词已优化')
+    }
+  } catch (e) {
+    console.error('优化提示词失败:', e)
+    message.error('优化失败，请稍后重试')
+  } finally {
+    optimizingPrompt.value = false
+  }
+}
+
 // 验证和过滤配置项
 const validateAndFilterConfig = () => {
   const validatedConfig = { ...agentConfig.value }
@@ -1005,6 +1053,37 @@ const confirmDeleteConfig = async () => {
 
           .system-prompt-container {
             width: 100%;
+          }
+
+          .prompt-edit-wrapper {
+            position: relative;
+            width: 100%;
+
+            .optimize-prompt-btn {
+              position: absolute;
+              right: 4px;
+              bottom: 4px;
+              display: flex;
+              align-items: center;
+              gap: 4px;
+              font-size: 12px;
+              color: var(--main-600);
+              padding: 2px 8px;
+              height: auto;
+              background: var(--gray-0);
+              border-radius: 4px;
+              opacity: 0.9;
+
+              &:hover:not(:disabled) {
+                color: var(--main-700);
+                opacity: 1;
+              }
+
+              &:disabled {
+                color: var(--gray-400);
+                cursor: not-allowed;
+              }
+            }
           }
 
           .system-prompt-display {

@@ -36,6 +36,19 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/agent-square',
+      name: 'agentSquare',
+      component: AppLayout,
+      children: [
+        {
+          path: '',
+          name: 'AgentSquareComp',
+          component: () => import('../views/AgentSquareView.vue'),
+          meta: { keepAlive: true, requiresAuth: true }
+        }
+      ]
+    },
+    {
       path: '/graph',
       name: 'graph',
       component: AppLayout,

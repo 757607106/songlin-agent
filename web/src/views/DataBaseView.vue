@@ -43,7 +43,7 @@
           <div v-if="database.metadata?.is_private" class="private-badge" title="私有知识库">
             <LockOutlined />
           </div>
-          
+
           <div class="card-content">
             <div class="card-header-row">
               <div class="icon-wrapper">
@@ -52,7 +52,9 @@
               <div class="header-info">
                 <h3 class="title">{{ database.name }}</h3>
                 <div class="meta-info">
-                  <span class="file-count">{{ database.files ? Object.keys(database.files).length : 0 }} 文件</span>
+                  <span class="file-count"
+                    >{{ database.files ? Object.keys(database.files).length : 0 }} 文件</span
+                  >
                   <span class="separator">•</span>
                   <span class="time" v-if="database.created_at">
                     {{ formatCreatedTime(database.created_at) }}
@@ -60,9 +62,9 @@
                 </div>
               </div>
             </div>
-            
+
             <p class="description">{{ database.description || '暂无描述' }}</p>
-            
+
             <div class="tags-row">
               <a-tag color="blue" v-if="database.embed_info?.name" class="custom-tag">
                 {{ database.embed_info.name }}
@@ -120,7 +122,7 @@
           <label>知识库名称<span class="required">*</span></label>
           <a-input v-model:value="newDatabase.name" placeholder="请输入知识库名称" size="large" />
         </div>
-        
+
         <div class="form-item">
           <label>嵌入模型</label>
           <EmbeddingModelSelector
@@ -180,7 +182,7 @@
           <ShareConfigForm v-model="shareConfig" :auto-select-user-dept="true" />
         </div>
       </div>
-      
+
       <template #footer>
         <div class="modal-footer">
           <a-button key="back" @click="cancelCreateDatabase" size="large">取消</a-button>
@@ -204,7 +206,13 @@ import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useConfigStore } from '@/stores/config'
 import { useDatabaseStore } from '@/stores/database'
-import { LockOutlined, InfoCircleOutlined, PlusOutlined, DatabaseOutlined, CheckCircleFilled } from '@ant-design/icons-vue'
+import {
+  LockOutlined,
+  InfoCircleOutlined,
+  PlusOutlined,
+  DatabaseOutlined,
+  CheckCircleFilled
+} from '@ant-design/icons-vue'
 import { typeApi } from '@/apis/knowledge_api'
 import HeaderComponent from '@/components/HeaderComponent.vue'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
@@ -430,7 +438,7 @@ onMounted(() => {
   padding: 24px;
   height: 100%;
   overflow: hidden;
-  
+
   .glass-panel {
     height: 100%;
     display: flex;
@@ -446,15 +454,15 @@ onMounted(() => {
   padding: 4px; // Prevent shadow clipping
   overflow-y: auto;
   padding-bottom: 24px;
-  
+
   &::-webkit-scrollbar {
     width: 6px;
   }
-  
+
   &::-webkit-scrollbar-track {
     background: transparent;
   }
-  
+
   &::-webkit-scrollbar-thumb {
     background-color: var(--gray-200);
     border-radius: 3px;
@@ -472,19 +480,19 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   height: 180px;
-  
+
   &:hover {
     transform: translateY(-4px);
     box-shadow: 0 12px 24px -8px var(--shadow-color-lg);
     border-color: var(--primary-200);
-    
+
     .icon-wrapper {
       transform: scale(1.05);
       background: var(--primary-50);
       color: var(--primary-600);
     }
   }
-  
+
   .private-badge {
     position: absolute;
     top: 16px;
@@ -499,18 +507,18 @@ onMounted(() => {
     border-radius: 50%;
     font-size: 14px;
   }
-  
+
   .card-content {
     display: flex;
     flex-direction: column;
     height: 100%;
   }
-  
+
   .card-header-row {
     display: flex;
     align-items: flex-start;
     margin-bottom: 16px;
-    
+
     .icon-wrapper {
       width: 48px;
       height: 48px;
@@ -525,12 +533,12 @@ onMounted(() => {
       transition: all 0.3s ease;
       flex-shrink: 0;
     }
-    
+
     .header-info {
       flex: 1;
       min-width: 0;
       padding-top: 2px;
-      
+
       .title {
         font-size: 16px;
         font-weight: 600;
@@ -540,13 +548,13 @@ onMounted(() => {
         overflow: hidden;
         text-overflow: ellipsis;
       }
-      
+
       .meta-info {
         display: flex;
         align-items: center;
         color: var(--gray-500);
         font-size: 12px;
-        
+
         .separator {
           margin: 0 6px;
           color: var(--gray-300);
@@ -554,7 +562,7 @@ onMounted(() => {
       }
     }
   }
-  
+
   .description {
     color: var(--gray-600);
     font-size: 14px;
@@ -566,13 +574,13 @@ onMounted(() => {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  
+
   .tags-row {
     margin-top: 16px;
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-    
+
     .custom-tag {
       margin: 0;
       border: none;
@@ -581,7 +589,7 @@ onMounted(() => {
       border-radius: 6px;
       padding: 2px 8px;
       font-size: 12px;
-      
+
       &.kb-type-tag {
         background: var(--primary-50);
         color: var(--primary-600);
@@ -609,7 +617,7 @@ onMounted(() => {
   justify-content: center;
   text-align: center;
   padding: 40px;
-  
+
   .empty-icon-wrapper {
     width: 80px;
     height: 80px;
@@ -619,20 +627,20 @@ onMounted(() => {
     align-items: center;
     justify-content: center;
     margin-bottom: 24px;
-    
+
     .empty-icon {
       font-size: 40px;
       color: var(--gray-400);
     }
   }
-  
+
   .empty-title {
     font-size: 20px;
     font-weight: 600;
     color: var(--gray-900);
     margin: 0 0 12px 0;
   }
-  
+
   .empty-description {
     font-size: 14px;
     color: var(--gray-500);
@@ -644,7 +652,7 @@ onMounted(() => {
 // Modal Styles
 .form-section {
   margin-bottom: 24px;
-  
+
   .section-title {
     font-size: 16px;
     font-weight: 600;
@@ -652,13 +660,13 @@ onMounted(() => {
     margin: 0 0 16px 0;
     display: flex;
     align-items: center;
-    
+
     .required {
       color: var(--error-500);
       margin-left: 4px;
     }
   }
-  
+
   .helper-text {
     font-size: 13px;
     color: var(--gray-500);
@@ -669,20 +677,20 @@ onMounted(() => {
 
 .form-item {
   margin-bottom: 16px;
-  
+
   label {
     display: block;
     margin-bottom: 8px;
     font-size: 14px;
     font-weight: 500;
     color: var(--gray-700);
-    
+
     .required {
       color: var(--error-500);
       margin-left: 4px;
     }
   }
-  
+
   &.half {
     flex: 1;
   }
@@ -697,11 +705,11 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  
+
   @media (max-width: 768px) {
     grid-template-columns: 1fr;
   }
-  
+
   .kb-type-card {
     border: 2px solid var(--gray-100);
     border-radius: 12px;
@@ -710,51 +718,51 @@ onMounted(() => {
     transition: all 0.3s ease;
     background: var(--gray-0);
     position: relative;
-    
+
     &:hover {
       border-color: var(--primary-300);
       transform: translateY(-2px);
     }
-    
+
     &.active {
       border-color: var(--primary-500);
       background: var(--primary-50);
-      
+
       .type-icon {
         color: var(--primary-600);
       }
-      
+
       .type-title {
         color: var(--primary-700);
       }
     }
-    
+
     .card-header {
       display: flex;
       align-items: center;
       gap: 10px;
       margin-bottom: 10px;
-      
+
       .type-icon {
         font-size: 20px;
         color: var(--gray-400);
         transition: color 0.3s;
       }
-      
+
       .type-title {
         font-weight: 600;
         color: var(--gray-800);
         font-size: 15px;
       }
     }
-    
+
     .card-description {
       font-size: 12px;
       color: var(--gray-600);
       line-height: 1.5;
       min-height: 36px;
     }
-    
+
     .selection-indicator {
       position: absolute;
       top: 10px;

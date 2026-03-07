@@ -86,15 +86,17 @@ class BaseAgent:
         }
 
         # 使用多模式流式 + subgraphs=True 来获取子 Agent 执行过程
-        # 官方文档格式: (namespace, chunk) 其中 chunk = (mode, data)
-        async for namespace, chunk in graph.astream(
+        # 实际格式: (namespace, mode, data) — 3-tuple
+        async for item in graph.astream(
             {"messages": messages},
             stream_mode=["messages", "updates"],
             context=context,
             config=input_config,
             subgraphs=True,
         ):
-            mode, data = chunk[0], chunk[1]  # 从 chunk 中提取 mode 和 data
+            # graph.astream with subgraphs=True + multi-mode returns 3-tuples
+            namespace, mode, data = item[0], item[1], item[2]
+
             # 解析 namespace 判断是否为子 Agent
             is_subagent = any(s.startswith("tools:") for s in namespace) if namespace else False
             subagent_name = None

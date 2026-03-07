@@ -52,7 +52,7 @@ defineProps({
   width: 100%;
   position: relative;
   z-index: 10;
-  
+
   // Sticky behavior handled by parent or specific views if needed
   // Removing global sticky to prevent issues inside glass panels
 }
@@ -72,13 +72,13 @@ defineProps({
 .header-main {
   flex: 1;
   min-width: 0;
-  
+
   .header-title-row {
     display: flex;
     align-items: center;
     gap: 12px;
     margin-bottom: 4px;
-    
+
     .title {
       margin: 0;
       font-size: 24px;
@@ -87,18 +87,18 @@ defineProps({
       line-height: 1.3;
       letter-spacing: -0.02em;
     }
-    
+
     .title-extras {
       display: flex;
       align-items: center;
     }
   }
-  
+
   .header-description {
     color: var(--gray-500);
     font-size: 14px;
     line-height: 1.5;
-    
+
     p {
       margin: 0;
     }
@@ -110,7 +110,7 @@ defineProps({
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
-  
+
   .loading-indicator {
     color: var(--primary-500);
     font-size: 18px;
@@ -126,7 +126,7 @@ defineProps({
     align-items: flex-start;
     gap: 12px;
   }
-  
+
   .header-actions {
     width: 100%;
     justify-content: flex-end;

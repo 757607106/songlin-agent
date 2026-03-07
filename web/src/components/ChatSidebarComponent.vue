@@ -526,7 +526,7 @@ const toggleCollapse = () => {
 
       &:hover {
         background-color: var(--gray-50);
-        
+
         .conversation-title {
           color: var(--gray-900);
         }

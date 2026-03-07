@@ -208,6 +208,11 @@ def extract_agent_state(values: dict, *, include_attachment_content: bool = Fals
     result = {
         "todos": list(todos)[:20] if todos else [],
         "files": files,
+        "execution_log": list(values.get("execution_log") or [])[-50:],
+        "route_history": list(values.get("route_history") or [])[-50:],
+        "completed_agents": list(values.get("completed_agents") or []),
+        "retry_counts": dict(values.get("retry_counts") or {}),
+        "active_agent": values.get("active_agent"),
     }
 
     return result
@@ -468,7 +473,7 @@ async def stream_agent_chat(
         thread_id = str(uuid.uuid4())
         logger.warning(f"No thread_id provided, generated new thread_id: {thread_id}")
 
-    agent_config = (config_item.config_json or {}).get("context", {})
+    agent_config = (config_item.config_json or {}).get("context", config_item.config_json or {})
     input_context = {
         "user_id": user_id,
         "thread_id": thread_id,
@@ -523,8 +528,12 @@ async def stream_agent_chat(
 
         # 根据用户权限过滤知识库
         requested_knowledge_names = input_context["agent_config"].get("knowledges")
+        requested_subagents = input_context["agent_config"].get("subagents") or []
+        need_kb_filter = bool(requested_knowledge_names) or any(
+            isinstance(sa, dict) and sa.get("knowledges") for sa in requested_subagents
+        )
         logger.info(f"Requesting knowledges: {requested_knowledge_names}")
-        if requested_knowledge_names and isinstance(requested_knowledge_names, list) and requested_knowledge_names:
+        if need_kb_filter:
             user_info = {"role": "user", "department_id": department_id}
             accessible_databases = await knowledge_base.get_databases_by_user(user_info)
             accessible_kb_names = {
@@ -534,11 +543,29 @@ async def stream_agent_chat(
             }
             logger.info(f"Accessible knowledges: {accessible_kb_names}")
 
-            filtered_knowledge_names = [kb for kb in requested_knowledge_names if kb in accessible_kb_names]
-            blocked_knowledge_names = [kb for kb in requested_knowledge_names if kb not in accessible_kb_names]
-            if blocked_knowledge_names:
-                logger.warning(f"用户 {user_id} 无权访问知识库: {blocked_knowledge_names}, 已自动过滤")
-            input_context["agent_config"]["knowledges"] = filtered_knowledge_names
+            if requested_knowledge_names and isinstance(requested_knowledge_names, list):
+                filtered_knowledge_names = [kb for kb in requested_knowledge_names if kb in accessible_kb_names]
+                blocked_knowledge_names = [kb for kb in requested_knowledge_names if kb not in accessible_kb_names]
+                if blocked_knowledge_names:
+                    logger.warning(f"用户 {user_id} 无权访问知识库: {blocked_knowledge_names}, 已自动过滤")
+                input_context["agent_config"]["knowledges"] = filtered_knowledge_names
+
+            if isinstance(requested_subagents, list):
+                for sa in requested_subagents:
+                    if not isinstance(sa, dict):
+                        continue
+                    sa_knowledges = sa.get("knowledges")
+                    if not sa_knowledges or not isinstance(sa_knowledges, list):
+                        continue
+                    filtered_sa_knowledges = [kb for kb in sa_knowledges if kb in accessible_kb_names]
+                    blocked_sa_knowledges = [kb for kb in sa_knowledges if kb not in accessible_kb_names]
+                    if blocked_sa_knowledges:
+                        blocked_text = ", ".join(blocked_sa_knowledges)
+                        logger.warning(
+                            f"用户 {user_id} 子Agent `{sa.get('name')}` "
+                            f"无权访问知识库: {blocked_text}, 已自动过滤"
+                        )
+                    sa["knowledges"] = filtered_sa_knowledges
 
         full_msg = None
         accumulated_content = []
