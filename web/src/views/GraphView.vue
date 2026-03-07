@@ -9,43 +9,45 @@
   <div class="graph-container layout-container" v-else>
     <HeaderComponent title="图数据库">
       <template #actions>
-        <div class="db-selector">
-          <div class="status-wrapper">
-            <div class="status-indicator" :class="graphStatusClass"></div>
-            <span class="status-text">{{ graphStatusText }}</span>
+        <div class="header-actions-wrapper">
+          <div class="db-selector">
+            <div class="status-wrapper">
+              <div class="status-indicator" :class="graphStatusClass"></div>
+              <span class="status-text">{{ graphStatusText }}</span>
+            </div>
+            <span class="label">知识库: </span>
+            <a-select
+              v-model:value="state.selectedDbId"
+              class="db-select"
+              :options="state.dbOptions"
+              @change="handleDbChange"
+              :loading="state.loadingDatabases"
+              mode="combobox"
+              placeholder="选择或输入KB ID"
+            />
           </div>
-          <span class="label">知识库: </span>
-          <a-select
-            v-model:value="state.selectedDbId"
-            style="width: 200px"
-            :options="state.dbOptions"
-            @change="handleDbChange"
-            :loading="state.loadingDatabases"
-            mode="combobox"
-            placeholder="选择或输入KB ID"
-          />
+          <div class="action-buttons">
+            <a-button v-if="isNeo4j" type="primary" @click="state.showModal = true">
+              <UploadOutlined /> 上传文件
+            </a-button>
+            <a-button v-else type="primary" @click="state.showUploadTipModal = true">
+              <UploadOutlined /> 上传文件
+            </a-button>
+            <a-button
+              v-if="unindexedCount > 0"
+              type="primary"
+              ghost
+              @click="indexNodes"
+              :loading="state.indexing"
+            >
+              <SyncOutlined v-if="!state.indexing" /> 为{{ unindexedCount }}个节点添加索引
+            </a-button>
+          </div>
         </div>
-        <!-- <a-button type="default" @click="openLink('http://localhost:7474/')" :icon="h(GlobalOutlined)">
-          Neo4j 浏览器
-        </a-button> -->
-        <a-button v-if="isNeo4j" type="primary" @click="state.showModal = true"
-          ><UploadOutlined /> 上传文件</a-button
-        >
-        <a-button v-else type="primary" @click="state.showUploadTipModal = true"
-          ><UploadOutlined /> 上传文件</a-button
-        >
-        <a-button
-          v-if="unindexedCount > 0"
-          type="primary"
-          @click="indexNodes"
-          :loading="state.indexing"
-        >
-          <SyncOutlined v-if="!state.indexing" /> 为{{ unindexedCount }}个节点添加索引
-        </a-button>
       </template>
     </HeaderComponent>
 
-    <div class="container-outter">
+    <div class="container-outter glass-panel">
       <GraphCanvas
         ref="graphRef"
         :graph-data="graph.graphData"
@@ -56,46 +58,48 @@
         @canvas-click="graph.handleCanvasClick"
       >
         <template #top>
-          <div class="actions">
-            <div class="actions-left">
-              <a-input
-                v-model:value="state.searchInput"
-                placeholder="输入要查询的实体 (*为全部)"
-                style="width: 300px"
-                @keydown.enter="onSearch"
-                allow-clear
-              >
-                <template #suffix>
-                  <component
-                    :is="state.searchLoading ? LoadingOutlined : SearchOutlined"
-                    @click="onSearch"
-                  />
-                </template>
-              </a-input>
-              <a-input
-                v-model:value="sampleNodeCount"
-                placeholder="查询数量"
-                style="width: 100px"
-                @keydown.enter="loadSampleNodes"
-                :loading="graph.fetching"
-              >
-                <template #suffix>
-                  <component
-                    :is="graph.fetching ? LoadingOutlined : ReloadOutlined"
-                    @click="loadSampleNodes"
-                  />
-                </template>
-              </a-input>
+          <div class="canvas-toolbar">
+            <div class="toolbar-left">
+              <a-input-group compact class="search-group">
+                <a-input
+                  v-model:value="state.searchInput"
+                  placeholder="输入要查询的实体 (*为全部)"
+                  class="search-input"
+                  @keydown.enter="onSearch"
+                  allow-clear
+                >
+                  <template #prefix>
+                    <SearchOutlined class="search-icon" />
+                  </template>
+                </a-input>
+                <a-input
+                  v-model:value="sampleNodeCount"
+                  placeholder="数量"
+                  class="count-input"
+                  @keydown.enter="loadSampleNodes"
+                  :loading="graph.fetching"
+                />
+                <a-button type="primary" @click="onSearch" :loading="state.searchLoading">
+                  查询
+                </a-button>
+              </a-input-group>
+              
+              <a-button @click="loadSampleNodes" :loading="graph.fetching" class="refresh-btn">
+                <template #icon><ReloadOutlined /></template>
+              </a-button>
             </div>
-            <div class="actions-right">
-              <a-button type="default" @click="exportGraphData" :icon="h(ExportOutlined)">
+            <div class="toolbar-right">
+              <a-button @click="exportGraphData" class="export-btn">
+                <template #icon><ExportOutlined /></template>
                 导出数据
               </a-button>
             </div>
           </div>
         </template>
         <template #content>
-          <a-empty v-show="graph.graphData.nodes.length === 0" style="padding: 4rem 0" />
+          <div v-show="graph.graphData.nodes.length === 0" class="empty-graph-state">
+            <a-empty description="暂无图谱数据，请查询或添加数据" />
+          </div>
         </template>
       </GraphCanvas>
       <!-- 详情浮动卡片 -->
@@ -105,7 +109,7 @@
         :type="graph.selectedItemType"
         :nodes="graph.graphData.nodes"
         @close="graph.handleCanvasClick"
-        style="width: 380px"
+        class="graph-detail-panel"
       />
     </div>
 
@@ -118,40 +122,49 @@
       cancel-text="取消"
       :confirm-loading="state.processing"
       :ok-button-props="{ disabled: !hasValidFile }"
+      width="600px"
+      class="upload-modal"
     >
-      <div class="upload">
-        <div class="note">
-          <p>上传的文件内容参考 test/data/A_Dream_of_Red_Mansions_tiny.jsonl 中的格式：</p>
-        </div>
-        <div class="upload-config">
-          <div class="config-row">
+      <div class="upload-container">
+        <a-alert
+          message="上传说明"
+          description="上传的文件内容需参考 test/data/A_Dream_of_Red_Mansions_tiny.jsonl 中的格式。目前仅支持 JSONL 格式。"
+          type="info"
+          show-icon
+          class="upload-alert"
+        />
+        
+        <div class="upload-config-panel">
+          <div class="config-item">
             <label class="config-label">嵌入模型</label>
-            <div class="config-field">
+            <div class="config-content">
               <EmbeddingModelSelector
                 v-model:value="state.embedModelName"
                 :disabled="!embedModelConfigurable"
-                :style="{ width: '100%' }"
+                style="width: 100%"
               />
+              <div v-if="!embedModelConfigurable" class="config-hint">
+                * 图数据库已有数据或已设定模型，不可更改
+              </div>
             </div>
           </div>
-          <div v-if="!embedModelConfigurable" class="config-hint-row">
-            * 图数据库已有数据或已设定模型，不可更改
-          </div>
-          <div class="config-row">
+          
+          <div class="config-item">
             <label class="config-label">批处理大小</label>
-            <div class="config-field">
+            <div class="config-content">
               <a-input-number
                 v-model:value="state.batchSize"
                 :min="1"
                 :max="1000"
                 style="width: 100%"
               />
+              <div class="config-hint">默认值: 40，范围: 1-1000</div>
             </div>
           </div>
-          <div class="config-hint-row">默认值: 40，范围: 1-1000</div>
         </div>
+
         <a-upload-dragger
-          class="upload-dragger"
+          class="upload-area"
           v-model:fileList="fileList"
           name="file"
           :fileList="fileList"
@@ -162,8 +175,11 @@
           @change="handleFileUpload"
           @drop="handleDrop"
         >
-          <p class="ant-upload-text">点击或者把文件拖拽到这里上传</p>
-          <p class="ant-upload-hint">目前仅支持上传 jsonl 文件。</p>
+          <p class="ant-upload-drag-icon">
+            <UploadOutlined />
+          </p>
+          <p class="ant-upload-text">点击或拖拽文件到此处上传</p>
+          <p class="ant-upload-hint">支持 .jsonl 格式文件</p>
         </a-upload-dragger>
       </div>
     </a-modal>
@@ -175,18 +191,19 @@
       @cancel="() => (state.showUploadTipModal = false)"
       :footer="null"
       width="500px"
+      class="info-modal"
     >
       <div class="upload-tip-content">
         <a-alert
           :message="getUploadTipMessage()"
           type="info"
           show-icon
-          style="margin-bottom: 16px"
+          style="margin-bottom: 24px"
         />
         <div v-if="!isNeo4j" class="upload-tip-actions">
           <p>如需上传文档到当前选中的知识库，请前往对应的知识库详情页面进行操作：</p>
           <div class="action-buttons">
-            <a-button type="primary" @click="goToDatabasePage">
+            <a-button type="primary" @click="goToDatabasePage" block size="large">
               <DatabaseOutlined /> 前往知识库详情页
             </a-button>
           </div>
@@ -620,38 +637,62 @@ const goToDatabasePage = () => {
 
 .graph-container {
   padding: 0;
-  background-color: var(--gray-0);
+  background-color: var(--gray-50);
+  height: calc(100vh - var(--header-height));
+  display: flex;
+  flex-direction: column;
+}
 
-  .header-container {
-    height: @graph-header-height;
-  }
+.header-actions-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 24px;
 }
 
 .db-selector {
   display: flex;
   align-items: center;
+  gap: 12px;
 
   .label {
     font-size: 14px;
-    margin-right: 8px;
+    font-weight: 500;
+    color: var(--gray-700);
   }
+  
+  .db-select {
+    width: 240px;
+  }
+}
+
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .status-wrapper {
   display: flex;
   align-items: center;
-  margin-right: 16px;
-  font-size: 14px;
-  color: var(--color-text-secondary);
-}
-
-.status-text {
-  margin-left: 8px;
+  margin-right: 12px;
+  padding: 4px 10px;
+  background: var(--gray-50);
+  border-radius: 20px;
+  border: 1px solid var(--gray-200);
+  
+  .status-text {
+    margin-left: 8px;
+    font-size: 12px;
+    color: var(--gray-600);
+    font-weight: 500;
+  }
 }
 
 .status-indicator {
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   display: inline-block;
 
@@ -662,6 +703,7 @@ const goToDatabasePage = () => {
 
   &.open {
     background-color: var(--color-success-500);
+    box-shadow: 0 0 0 2px var(--color-success-100);
   }
 
   &.closed {
@@ -670,116 +712,184 @@ const goToDatabasePage = () => {
 }
 
 @keyframes pulse {
-  0% {
-    transform: scale(0.8);
-    opacity: 0.5;
-  }
-  50% {
-    transform: scale(1.2);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(0.8);
-    opacity: 0.5;
-  }
-}
-
-.upload {
-  margin-bottom: 20px;
-
-  .upload-dragger {
-    margin: 0px;
-  }
-
-  .upload-config {
-    margin: 24px 0;
-    padding: 16px;
-    background-color: var(--gray-0);
-    border-radius: 4px;
-
-    .config-row {
-      display: flex;
-      align-items: center;
-      margin-bottom: 16px;
-
-      &:last-of-type {
-        margin-bottom: 0;
-      }
-
-      .config-label {
-        width: 100px;
-        flex-shrink: 0;
-        font-size: 14px;
-        color: var(--color-text);
-        text-align: right;
-        margin-right: 16px;
-      }
-
-      .config-field {
-        flex: 1;
-        min-width: 0;
-      }
-    }
-
-    .config-hint-row {
-      margin-bottom: 16px;
-      padding-left: 116px;
-      font-size: 12px;
-      color: var(--color-text-secondary);
-      line-height: 1.5;
-
-      &:last-child {
-        margin-bottom: 0;
-      }
-    }
-  }
+  0% { transform: scale(0.8); opacity: 0.5; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(0.8); opacity: 0.5; }
 }
 
 .container-outter {
+  flex: 1;
   width: 100%;
-  height: calc(100vh - @graph-header-height);
   overflow: hidden;
-  background: var(--gray-10);
-
-  .actions {
-    display: flex;
-    justify-content: space-between;
-    margin: 20px 0;
-    padding: 0 24px;
-    width: 100%;
-  }
-
-  .tags {
-    display: flex;
-    gap: 8px;
+  background: var(--gray-0);
+  margin-top: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  
+  &.glass-panel {
+    background: var(--gray-0);
+    border: none;
   }
 }
 
-.actions {
-  top: 0;
-
-  .actions-left,
-  .actions-right {
+.canvas-toolbar {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  right: 20px;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  pointer-events: none; // 让下方 canvas 可点击
+  
+  .toolbar-left, .toolbar-right {
+    pointer-events: auto;
     display: flex;
-    align-items: center;
-    gap: 10px;
+    gap: 12px;
   }
+  
+  .search-group {
+    display: flex;
+    box-shadow: var(--shadow-2);
+    border-radius: 8px;
+    
+    .search-input {
+      width: 280px;
+      text-align: left;
+      
+      :deep(.ant-input) {
+        border-top-left-radius: 8px;
+        border-bottom-left-radius: 8px;
+      }
+    }
+    
+    .count-input {
+      width: 80px;
+      text-align: center;
+    }
+    
+    :deep(.ant-btn) {
+      border-top-right-radius: 8px;
+      border-bottom-right-radius: 8px;
+    }
+  }
+  
+  .refresh-btn, .export-btn {
+    box-shadow: var(--shadow-2);
+    border-radius: 8px;
+    border: 1px solid var(--gray-200);
+    background: var(--gray-0);
+    
+    &:hover {
+      color: var(--main-600);
+      border-color: var(--main-300);
+    }
+  }
+}
 
-  :deep(.ant-input) {
-    padding: 2px 0px;
-  }
+.empty-graph-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0.6;
+}
 
-  button {
-    height: 37px;
-    box-shadow: none;
+.upload-modal {
+  .upload-container {
+    padding: 0;
   }
+  
+  .upload-alert {
+    margin-bottom: 20px;
+  }
+  
+  .upload-config-panel {
+    background: var(--gray-50);
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    border: 1px solid var(--gray-100);
+    
+    .config-item {
+      display: flex;
+      margin-bottom: 12px;
+      
+      &:last-child {
+        margin-bottom: 0;
+      }
+      
+      .config-label {
+        width: 100px;
+        flex-shrink: 0;
+        font-weight: 500;
+        color: var(--gray-700);
+        padding-top: 5px;
+      }
+      
+      .config-content {
+        flex: 1;
+      }
+      
+      .config-hint {
+        font-size: 12px;
+        color: var(--gray-500);
+        margin-top: 4px;
+      }
+    }
+  }
+  
+  .upload-area {
+    background: var(--gray-0);
+    border-radius: 8px;
+    padding: 20px 0;
+    
+    :deep(.ant-upload-drag-icon) {
+      margin-bottom: 12px;
+      color: var(--main-400);
+    }
+    
+    :deep(.ant-upload-text) {
+      font-size: 15px;
+      color: var(--gray-800);
+    }
+    
+    :deep(.ant-upload-hint) {
+      color: var(--gray-500);
+    }
+  }
+}
+
+.graph-detail-panel {
+  position: absolute;
+  top: 80px;
+  right: 20px;
+  width: 380px;
+  max-height: calc(100% - 100px);
+  z-index: 20;
+  box-shadow: var(--shadow-3);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.database-empty {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  flex-direction: column;
+  color: var(--gray-900);
 }
 
 .upload-tip-content {
   .upload-tip-actions {
     p {
       margin-bottom: 16px;
-      color: var(--color-text-secondary);
+      color: var(--gray-600);
     }
   }
 

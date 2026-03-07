@@ -85,15 +85,45 @@ class BaseAgent:
             "recursion_limit": 300,
         }
 
-        # 官方文档标准用法：stream_mode="messages" 返回 (msg, metadata) 二元组
-        # https://docs.langchain.com/oss/python/langgraph/streaming
-        async for msg, metadata in graph.astream(
+        # 使用多模式流式 + subgraphs=True 来获取子 Agent 执行过程
+        # 官方文档格式: (namespace, chunk) 其中 chunk = (mode, data)
+        async for namespace, chunk in graph.astream(
             {"messages": messages},
-            stream_mode="messages",
+            stream_mode=["messages", "updates"],
             context=context,
             config=input_config,
+            subgraphs=True,
         ):
-            yield msg, metadata
+            mode, data = chunk[0], chunk[1]  # 从 chunk 中提取 mode 和 data
+            # 解析 namespace 判断是否为子 Agent
+            is_subagent = any(s.startswith("tools:") for s in namespace) if namespace else False
+            subagent_name = None
+            if is_subagent and namespace:
+                # 提取子 Agent 名称，格式如 "tools:call_xxx"
+                for ns in namespace:
+                    if ns.startswith("tools:"):
+                        subagent_name = ns.split(":")[0] if ":" in ns else ns
+                        break
+
+            if mode == "messages":
+                msg, metadata = data
+                # 添加子 Agent 信息到 metadata
+                enriched_metadata = dict(metadata) if metadata else {}
+                enriched_metadata["is_subagent"] = is_subagent
+                enriched_metadata["subagent_name"] = subagent_name
+                enriched_metadata["namespace"] = list(namespace) if namespace else []
+                yield msg, enriched_metadata
+            elif mode == "updates":
+                # 发送状态更新事件（包含子 Agent 步骤信息）
+                update_event = {
+                    "type": "state_update",
+                    "is_subagent": is_subagent,
+                    "subagent_name": subagent_name,
+                    "namespace": list(namespace) if namespace else [],
+                    "nodes": list(data.keys()) if isinstance(data, dict) else [],
+                    "data": data,
+                }
+                yield update_event, {"mode": "updates"}
 
     async def invoke_messages(self, messages: list[str], input_context=None, **kwargs):
         graph = await self.get_graph()

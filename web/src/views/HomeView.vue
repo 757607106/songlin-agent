@@ -17,6 +17,12 @@
 
     <!-- 正常内容 -->
     <template v-else>
+      <div class="background-decorations">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+      </div>
+      
       <div class="hero-section">
         <div class="glass-header">
           <div class="logo">
@@ -67,11 +73,11 @@
 
         <div class="hero-layout">
           <div class="hero-content">
-            <h1 class="title">{{ infoStore.branding.title }}</h1>
-            <p class="subtitle">{{ infoStore.branding.subtitle }}</p>
+            <h1 class="title animate-slide-up" style="animation-delay: 0.1s">{{ infoStore.branding.title }}</h1>
+            <p class="subtitle animate-slide-up" style="animation-delay: 0.2s">{{ infoStore.branding.subtitle }}</p>
             <!-- <p class="description">{{ infoStore.branding.description }}</p> -->
-            <div class="hero-actions">
-              <button class="button-base primary" @click="goToChat">开始对话</button>
+            <div class="hero-actions animate-slide-up" style="animation-delay: 0.3s">
+              <button class="button-base primary btn-primary-glow" @click="goToChat">开始对话</button>
               <a
                 class="button-base secondary"
                 href="https://xerrors.github.io/Yuxi-Know/"
@@ -80,7 +86,7 @@
               >
             </div>
           </div>
-          <div class="insight-panel" v-if="featureCards.length">
+          <div class="insight-panel glass-panel animate-slide-up" v-if="featureCards.length" style="animation-delay: 0.4s">
             <div class="stat-card" v-for="card in featureCards" :key="card.label">
               <div class="stat-headline">
                 <span class="stat-icon" v-if="card.icon">
@@ -95,12 +101,12 @@
         </div>
       </div>
 
-      <div class="section action-section" v-if="actionLinks.length">
+      <div class="section action-section animate-slide-up" v-if="actionLinks.length" style="animation-delay: 0.5s">
         <div class="action-grid">
           <a
             v-for="action in actionLinks"
             :key="action.name"
-            class="action-card"
+            class="action-card hover-card"
             :href="action.url"
             target="_blank"
             rel="noopener noreferrer"
@@ -311,10 +317,61 @@ const actionLinks = computed(() => {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  color: var(--main-900);
-  background: radial-gradient(circle at top right, var(--main-50), transparent 60%), var(--main-5);
+  color: var(--gray-900);
+  background: var(--gray-50);
   position: relative;
   overflow-x: hidden;
+}
+
+.background-decorations {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.6;
+}
+
+.blob-1 {
+  top: -10%;
+  right: -10%;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, var(--main-200), var(--main-100));
+  animation: float 20s infinite ease-in-out;
+}
+
+.blob-2 {
+  bottom: -10%;
+  left: -10%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, var(--main-100), var(--color-secondary-100));
+  animation: float 25s infinite ease-in-out reverse;
+}
+
+.blob-3 {
+  top: 40%;
+  left: 40%;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, var(--color-accent-100), transparent);
+  animation: float 15s infinite ease-in-out;
+  opacity: 0.4;
+}
+
+@keyframes float {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(30px, -30px); }
 }
 
 // 加载中状态
@@ -324,11 +381,13 @@ const actionLinks = computed(() => {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  gap: 1rem;
+  gap: 1.5rem;
+  z-index: 10;
 
   .loading-text {
     color: var(--gray-600);
-    font-size: 0.95rem;
+    font-size: 1rem;
+    font-weight: 500;
   }
 }
 
@@ -339,59 +398,54 @@ const actionLinks = computed(() => {
   justify-content: center;
   min-height: 100vh;
   padding: 2rem;
+  z-index: 10;
 }
+
 .glass-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   width: 100%;
-  padding: 0.75rem 2.5rem;
-  background-color: var(--color-trans-light);
-  backdrop-filter: blur(20px);
-  // border-bottom: 1px solid var(--main-30);
+  padding: 1rem 3rem;
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--glass-border);
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   z-index: 100;
-  box-shadow: 0 6px 25px rgba(3, 80, 101, 0.02);
+  transition: all 0.3s ease;
 }
 
 .nav-links {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 1rem;
 }
 
 .nav-link {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.6rem 1rem;
+  padding: 0.5rem 1rem;
   text-decoration: none;
-  color: var(--gray-800);
+  color: var(--gray-700);
   font-weight: 500;
   font-size: 0.95rem;
-  transition: color 0.2s ease;
-  position: relative;
-  overflow: hidden;
+  transition: all 0.2s ease;
+  border-radius: 8px;
 
   &:hover {
-    color: var(--gray-900);
-
-    svg {
-      transform: scale(1.1);
-    }
+    color: var(--main-600);
+    background: var(--main-50);
   }
 
   &.router-link-active {
-    background: linear-gradient(135deg, var(--main-600), var(--main-500));
-    color: var(--gray-0);
-    border-radius: 1.5rem;
-
-    &:hover {
-      background: linear-gradient(135deg, var(--main-700), var(--main-600));
-    }
+    color: var(--main-700);
+    background: var(--main-100);
+    font-weight: 600;
   }
 
   span {
@@ -408,19 +462,15 @@ const actionLinks = computed(() => {
 .logo {
   display: flex;
   align-items: center;
-  font-size: 1.4rem;
-  font-weight: bold;
-  color: var(--main-800);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--main-900);
+  letter-spacing: -0.02em;
 
   .logo-img {
-    height: 2rem;
-    margin-right: 0.6rem;
+    height: 2.2rem;
+    margin-right: 0.8rem;
   }
-}
-
-.logo-text {
-  font-size: 1.3rem;
-  font-weight: 600;
 }
 
 .github-link a {
@@ -428,36 +478,19 @@ const actionLinks = computed(() => {
   align-items: center;
   text-decoration: none;
   color: var(--gray-600);
-  padding: 0.6rem 1rem;
+  padding: 0.6rem;
+  border-radius: 50%;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  font-size: 0.9rem;
-  font-weight: 500;
-
+  
   &:hover {
-    color: var(--gray-700);
-
-    svg {
-      transform: scale(1.1);
-    }
+    color: var(--gray-900);
+    background: var(--gray-100);
+    transform: rotate(15deg);
   }
 
   svg {
-    margin-right: 6px;
     transition: transform 0.3s ease;
     fill: currentColor;
-  }
-
-  .stars-count {
-    font-weight: 600;
-  }
-
-  // 暗色模式样式
-  :global(.dark) & {
-    color: var(--gray-400);
-
-    &:hover {
-      color: var(--gray-300);
-    }
   }
 }
 
@@ -467,54 +500,47 @@ const actionLinks = computed(() => {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 5rem 2rem 2rem;
+  padding: 6rem 2rem 4rem;
+  position: relative;
+  z-index: 1;
 }
 
 .hero-layout {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 2.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 4rem;
   align-items: center;
-  max-width: 1200px;
+  max-width: 1280px;
   margin: 0 auto;
-  padding-top: 4rem;
+  padding-top: 2rem;
 }
 
 .hero-content {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1.5rem;
+  max-width: 600px;
 }
 
 .title {
-  font-size: clamp(2.5rem, 4vw, 4rem);
+  font-size: clamp(3rem, 5vw, 4.5rem);
   font-weight: 800;
   margin: 0;
-  background: linear-gradient(135deg, var(--main-900), var(--main-600));
+  background: linear-gradient(135deg, var(--main-900) 0%, var(--main-600) 50%, var(--color-secondary-500) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   line-height: 1.1;
-}
-
-.hero-eyebrow {
-  color: var(--main-600);
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-  font-size: 0.85rem;
+  padding-bottom: 0.2em; /* prevent descender clipping */
 }
 
 .subtitle {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--gray-700);
-  line-height: 1.4;
-}
-
-.description {
+  font-size: 1.25rem;
+  font-weight: 500;
   color: var(--gray-600);
   line-height: 1.6;
+  max-width: 90%;
 }
 
 .hero-actions {
@@ -522,169 +548,180 @@ const actionLinks = computed(() => {
   flex-wrap: wrap;
   gap: 1rem;
   align-items: center;
+  margin-top: 1rem;
 }
 
 .button-base {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
-  padding: 0.5rem 2.75rem;
+  gap: 0.5rem;
+  padding: 0.75rem 2rem;
   border-radius: 999px;
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
   border: 1px solid transparent;
   text-decoration: none;
-  transition: all 0.25s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   min-height: 52px;
 }
 
 .button-base.primary {
-  background: linear-gradient(135deg, var(--main-600), var(--main-500));
-  color: var(--gray-0);
-  border-color: transparent;
+  background: var(--main-600);
+  color: white;
+  box-shadow: 0 4px 14px 0 rgba(8, 145, 178, 0.39);
 
   &:hover {
-    background: linear-gradient(135deg, var(--main-700), var(--main-600));
+    background: var(--main-700);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(8, 145, 178, 0.23);
+  }
+  
+  &:active {
+    transform: translateY(0);
   }
 }
 
 .button-base.secondary {
-  background: rgba(2, 57, 68, 0.06);
-  color: var(--main-700);
-  border-color: var(--gray-100);
+  background: white;
+  color: var(--gray-700);
+  border: 1px solid var(--gray-200);
+  box-shadow: var(--shadow-sm);
 
   &:hover {
-    border-color: var(--main-200);
+    border-color: var(--gray-300);
+    color: var(--main-600);
     background: var(--gray-50);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-1);
   }
 }
 
 .insight-panel {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1rem;
-  background: var(--main-0);
-  border-radius: 1.5rem;
-  padding: 1.5rem;
-  border: 1px solid var(--main-40);
-  box-shadow: 0 15px 35px rgba(3, 80, 101, 0.08);
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  padding: 2rem;
+  border-radius: 24px;
+  box-shadow: var(--shadow-4);
+  background: rgba(255, 255, 255, 0.8);
 }
 
 .stat-card {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: 16px;
+  transition: background 0.2s ease;
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.5);
+  }
 }
 
 .stat-headline {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.75rem;
 }
 
 .stat-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: var(--gray-25);
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--main-50);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-
+  color: var(--main-600);
+  
   :deep(svg) {
     width: 24px;
     height: 24px;
-    color: var(--main-700);
   }
 }
 
 .stat-value {
-  font-size: 2rem;
+  font-size: 1.75rem;
   font-weight: 700;
-  color: var(--main-800);
+  color: var(--gray-900);
   margin: 0;
+  letter-spacing: -0.02em;
 }
 
 .stat-label {
   margin: 0;
-  color: var(--gray-700);
+  color: var(--gray-500);
   font-weight: 600;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .stat-description {
   margin: 0;
   color: var(--gray-600);
-  font-size: 0.9rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
 }
 
 .section {
   width: 100%;
-  max-width: 1200px;
-  margin: 50px auto 0px auto;
-  padding: 2rem 0;
-}
-
-.section-header {
-  margin-bottom: 1.5rem;
-
-  h2 {
-    margin: 0 0 0.5rem;
-    font-size: 1.8rem;
-    color: var(--main-800);
-  }
-
-  p {
-    margin: 0;
-    color: var(--gray-600);
-  }
-}
-
-.action-section {
-  padding-bottom: 3rem;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 4rem 2rem;
+  position: relative;
+  z-index: 1;
 }
 
 .action-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1.5rem;
 }
 
 .action-card {
   display: flex;
   align-items: center;
-  gap: 0.8rem;
-  padding: 1rem 1.25rem;
-  border-radius: 1rem;
+  gap: 1rem;
+  padding: 1.25rem;
+  border-radius: 16px;
   text-decoration: none;
   color: inherit;
-  border: 1px solid var(--gray-50);
-  background: var(--gray-0);
-  transition:
-    transform 0.2s ease,
-    background 0.2s ease;
-
+  background: white;
+  border: 1px solid var(--gray-100);
+  box-shadow: var(--shadow-sm);
+  
   &:hover {
-    background: var(--gray-0);
-    transform: translateY(-2px);
+    border-color: var(--main-200);
+    .action-icon {
+      background: var(--main-600);
+      color: white;
+    }
+    
+    .action-title {
+      color: var(--main-700);
+    }
   }
 }
 
 .action-icon {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border-radius: 12px;
-  background: var(--gray-50);
+  background: var(--main-50);
+  color: var(--main-600);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition: all 0.3s ease;
 
   :deep(svg) {
-    width: 22px;
-    height: 22px;
-    color: var(--main-700);
+    width: 24px;
+    height: 24px;
   }
 }
 
@@ -696,78 +733,24 @@ const actionLinks = computed(() => {
 .action-title {
   margin: 0;
   font-weight: 600;
-  color: var(--main-800);
+  color: var(--gray-800);
+  font-size: 1rem;
+  transition: color 0.2s ease;
 }
 
 .action-url {
   margin: 0.25rem 0 0;
-  font-size: 0.9rem;
-  color: var(--gray-600);
+  font-size: 0.85rem;
+  color: var(--gray-500);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.preview-section {
-  padding: 5rem 2rem;
-  display: flex;
-  justify-content: center;
-}
-
-.preview-container {
-  position: relative;
-  max-width: 1000px;
-  overflow: hidden;
-  border-radius: 1rem;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s ease;
-
-  &:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
-
-    .preview-overlay {
-      opacity: 1;
-    }
-  }
-
-  img {
-    width: 100%;
-    height: auto;
-    display: block;
-    transition: transform 0.5s ease;
-  }
-
-  .preview-overlay {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent);
-    padding: 2rem;
-    opacity: 0.8;
-    transition: opacity 0.3s ease;
-
-    .overlay-content {
-      color: var(--gray-0);
-
-      h3 {
-        font-size: 1.5rem;
-        margin-bottom: 0.5rem;
-      }
-
-      p {
-        font-size: 1rem;
-        opacity: 0.9;
-      }
-    }
-  }
-}
-
 .footer {
   margin-top: auto;
-  background: var(--main-0);
-  border-top: 1px solid var(--main-20);
+  background: white;
+  border-top: 1px solid var(--gray-100);
   position: relative;
   z-index: 10;
 }
@@ -780,74 +763,35 @@ const actionLinks = computed(() => {
 }
 
 .copyright {
-  color: var(--main-700);
-  font-size: 0.9rem;
+  color: var(--gray-500);
+  font-size: 0.875rem;
   font-weight: 500;
-  margin: 0;
-  opacity: 0.8;
-  transition: opacity 0.3s ease;
-}
-
-.footer:hover .copyright {
-  opacity: 1;
 }
 
 @media (max-width: 768px) {
   .glass-header {
     padding: 0.8rem 1.25rem;
-    flex-wrap: wrap;
-    gap: 1rem;
   }
 
   .nav-links {
-    order: 3;
-    width: 100%;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+    display: none; /* Consider a mobile menu for smaller screens */
   }
-
-  .nav-link {
-    padding: 0.5rem 0.8rem;
-    font-size: 0.85rem;
-
-    span {
-      display: none;
-    }
-  }
-
-  .logo {
-    font-size: 1.1rem;
+  
+  .hero-section {
+    padding: 6rem 1.5rem 2rem;
   }
 
   .title {
-    font-size: 2.4rem;
-  }
-
-  .subtitle {
-    font-size: 1.2rem;
-  }
-
-  .start-button {
-    width: 100%;
-    text-align: center;
-  }
-
-  .hero-content {
-    padding: 0;
-  }
-
-  .github-link a {
-    padding: 0.5rem 0.8rem;
-    font-size: 0.85rem;
-
-    .stars-count {
-      display: none;
-    }
+    font-size: 2.75rem;
   }
 
   .hero-layout {
-    padding: 0 0.5rem;
+    grid-template-columns: 1fr;
+    gap: 3rem;
+  }
+  
+  .insight-panel {
+    padding: 1.5rem;
   }
 }
 </style>

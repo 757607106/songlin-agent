@@ -622,21 +622,28 @@ defineExpose({
   display: grid;
   width: 100%;
   margin: 0 auto;
-  border: 1px solid var(--gray-150);
-  border-radius: 0.8rem;
-  box-shadow: 0 2px 8px var(--shadow-1);
-  transition: all 0.3s ease;
+  border: 1px solid var(--gray-200);
+  border-radius: 16px;
+  background: var(--gray-0);
+  box-shadow: var(--shadow-1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   gap: 0px;
   position: relative;
 
   /* Default: Multi-line layout with top/bottom slots */
-  padding: 0.8rem 0.75rem 0.6rem 0.75rem;
+  padding: 0.8rem 1rem 0.6rem 1rem;
   grid-template-columns: auto 1fr;
   grid-template-rows: auto auto auto;
   grid-template-areas:
     'top top'
     'input input'
     'options send';
+
+  &:focus-within {
+    border-color: var(--main-400);
+    box-shadow: var(--shadow-glow), 0 4px 12px rgba(0, 0, 0, 0.05);
+    transform: translateY(-1px);
+  }
 
   .top-slot {
     display: flex;
@@ -664,14 +671,8 @@ defineExpose({
     grid-column: 1 / -1;
   }
 
-  // &:focus-within {
-  //   border-color: var(--main-500);
-  //   background: var(--gray-0);
-  //   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  // }
-
   &.single-line {
-    padding: 0.75rem 0.75rem;
+    padding: 0.75rem 1rem;
     grid-template-columns: auto 1fr auto;
     grid-template-rows: auto 1fr auto;
     grid-template-areas:
@@ -725,11 +726,11 @@ defineExpose({
   border: none;
   margin: 0;
   margin-bottom: 0.5rem;
-  color: var(--gray-1000);
+  color: var(--gray-900);
   font-size: 15px;
   outline: none;
   resize: none;
-  line-height: 1.5;
+  line-height: 1.6;
   font-family: inherit;
   min-height: 44px; /* Default min-height for multi-line */
   max-height: 200px;
@@ -752,28 +753,29 @@ defineExpose({
 }
 
 .expand-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--gray-600);
+  color: var(--gray-500);
   transition: all 0.2s ease;
   border: 1px solid transparent;
   background-color: transparent;
 
   &:hover {
-    color: var(--main-color);
+    color: var(--main-600);
+    background-color: var(--main-50);
   }
 
   &:active {
-    color: var(--main-color);
+    color: var(--main-700);
     transform: scale(0.95);
   }
 
   .anticon {
-    font-size: 14px;
+    font-size: 16px;
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
     &.rotated {
@@ -799,53 +801,56 @@ defineExpose({
     border-radius: 8px;
     padding: 6px 10px;
     cursor: pointer;
-    font-size: 12px;
+    font-size: 13px;
     color: var(--gray-700);
     transition: all 0.2s ease;
     margin: 2px;
     display: inline-block;
 
     &:hover {
-      background-color: var(--main-10);
+      background-color: var(--main-50);
       color: var(--main-600);
     }
 
     &.active {
       color: var(--main-600);
-      background-color: var(--main-10);
+      background-color: var(--main-50);
+      font-weight: 500;
     }
   }
 }
 
 .send-button.ant-btn-icon-only {
-  height: 32px;
-  width: 32px;
+  height: 36px;
+  width: 36px;
   cursor: pointer;
-  background-color: var(--main-500);
-  border-radius: 50%;
+  background: linear-gradient(135deg, var(--main-500), var(--main-600));
+  border-radius: 12px;
   border: none;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 6px var(--shadow-2);
-  color: var(--gray-0);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 10px rgba(6, 182, 212, 0.3);
+  color: white;
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 16px;
 
   &:hover {
-    background-color: var(--main-color);
-    box-shadow: 0 4px 8px var(--shadow-3);
-    color: var(--gray-0);
+    background: linear-gradient(135deg, var(--main-400), var(--main-500));
+    box-shadow: 0 6px 15px rgba(6, 182, 212, 0.4);
+    transform: translateY(-1px);
   }
 
   &:active {
-    transform: translateY(0);
-    box-shadow: 0 2px 4px var(--shadow-2);
+    transform: translateY(1px);
+    box-shadow: 0 2px 5px rgba(6, 182, 212, 0.3);
   }
 
   &:disabled {
-    opacity: 0.5;
+    background: var(--gray-200);
+    color: var(--gray-400);
+    opacity: 1;
     cursor: not-allowed;
     transform: none;
     box-shadow: none;
@@ -854,7 +859,7 @@ defineExpose({
 
 @media (max-width: 520px) {
   .input-box {
-    border-radius: 15px;
+    border-radius: 16px;
     padding: 0.625rem 0.875rem;
   }
 }
@@ -870,9 +875,10 @@ defineExpose({
   max-height: 280px;
   overflow-y: auto;
   background: var(--gray-0);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  border: 1px solid var(--gray-200);
+  border-radius: 12px;
+  box-shadow: var(--shadow-4);
+  border: 1px solid var(--gray-150);
+  padding: 4px;
 
   .mention-group {
     margin-bottom: 4px;
@@ -883,35 +889,38 @@ defineExpose({
   }
 
   .mention-group-title {
-    font-size: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
     color: var(--gray-500);
-    padding: 4px 8px;
+    padding: 6px 10px;
     display: flex;
     align-items: center;
     gap: 4px;
-    border-bottom: 1px solid var(--gray-100);
+    letter-spacing: 0.05em;
+    // border-bottom: 1px solid var(--gray-100);
     margin-bottom: 2px;
   }
 
   .mention-item {
-    padding: 4px 8px;
+    padding: 8px 10px;
     cursor: pointer;
     font-size: 13px;
     color: var(--gray-700);
     transition: all 0.15s ease;
-    margin: 1px 4px;
-    border-radius: 4px;
+    margin: 1px 0;
+    border-radius: 8px;
 
     &:hover,
     &.active {
-      background-color: var(--main-10);
-      color: var(--main-600);
+      background-color: var(--main-50);
+      color: var(--main-700);
     }
   }
 
   .mention-empty {
     text-align: center;
-    padding: 12px 8px;
+    padding: 16px;
     color: var(--gray-400);
     font-size: 13px;
   }

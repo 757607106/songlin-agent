@@ -1,0 +1,780 @@
+[
+  {
+    "file": "src/apis/agent_api.js",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 100,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 100
+      },
+      {
+        "key": "chat-data-hook",
+        "target": "useXAgent/useXChat/XRequest",
+        "hitRate": 66.67
+      },
+      {
+        "key": "conversation-management",
+        "target": "Conversations",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/AgentChatComponent.vue",
+    "strongestMatch": "conversation-management",
+    "targetComponent": "Conversations",
+    "hitRate": 100,
+    "allMatches": [
+      {
+        "key": "conversation-management",
+        "target": "Conversations",
+        "hitRate": 100
+      },
+      {
+        "key": "thought-chain",
+        "target": "ThoughtChain",
+        "hitRate": 60
+      },
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 50
+      },
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 66.67
+      },
+      {
+        "key": "chat-data-hook",
+        "target": "useXAgent/useXChat/XRequest",
+        "hitRate": 66.67
+      },
+      {
+        "key": "chat-bubble",
+        "target": "Bubble/BubbleList",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/AgentInputArea.vue",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 100,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 100
+      },
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 50
+      },
+      {
+        "key": "conversation-management",
+        "target": "Conversations",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/apis/dashboard_api.js",
+    "strongestMatch": "conversation-management",
+    "targetComponent": "Conversations",
+    "hitRate": 66.67,
+    "allMatches": [
+      {
+        "key": "conversation-management",
+        "target": "Conversations",
+        "hitRate": 66.67
+      }
+    ]
+  },
+  {
+    "file": "src/components/AttachmentOptionsComponent.vue",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 66.67,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 66.67
+      }
+    ]
+  },
+  {
+    "file": "src/components/FileUploadModal.vue",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 66.67,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 66.67
+      },
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 25
+      }
+    ]
+  },
+  {
+    "file": "src/components/UserInfoComponent.vue",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 66.67,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 66.67
+      }
+    ]
+  },
+  {
+    "file": "src/views/DashboardView.vue",
+    "strongestMatch": "conversation-management",
+    "targetComponent": "Conversations",
+    "hitRate": 66.67,
+    "allMatches": [
+      {
+        "key": "conversation-management",
+        "target": "Conversations",
+        "hitRate": 66.67
+      }
+    ]
+  },
+  {
+    "file": "src/composables/useAgentStreamHandler.js",
+    "strongestMatch": "thought-chain",
+    "targetComponent": "ThoughtChain",
+    "hitRate": 60,
+    "allMatches": [
+      {
+        "key": "thought-chain",
+        "target": "ThoughtChain",
+        "hitRate": 60
+      },
+      {
+        "key": "conversation-management",
+        "target": "Conversations",
+        "hitRate": 33.33
+      },
+      {
+        "key": "chat-data-hook",
+        "target": "useXAgent/useXChat/XRequest",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/MessageInputComponent.vue",
+    "strongestMatch": "input-sender",
+    "targetComponent": "Sender",
+    "hitRate": 50,
+    "allMatches": [
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 50
+      }
+    ]
+  },
+  {
+    "file": "src/components/AgentMessageComponent.vue",
+    "strongestMatch": "thought-chain",
+    "targetComponent": "ThoughtChain",
+    "hitRate": 40,
+    "allMatches": [
+      {
+        "key": "thought-chain",
+        "target": "ThoughtChain",
+        "hitRate": 40
+      },
+      {
+        "key": "chat-bubble",
+        "target": "Bubble/BubbleList",
+        "hitRate": 33.33
+      },
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 25
+      },
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/ToolCallingResult/ToolCallRenderer.vue",
+    "strongestMatch": "thought-chain",
+    "targetComponent": "ThoughtChain",
+    "hitRate": 40,
+    "allMatches": [
+      {
+        "key": "thought-chain",
+        "target": "ThoughtChain",
+        "hitRate": 40
+      },
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/utils/chatExporter.js",
+    "strongestMatch": "thought-chain",
+    "targetComponent": "ThoughtChain",
+    "hitRate": 40,
+    "allMatches": [
+      {
+        "key": "thought-chain",
+        "target": "ThoughtChain",
+        "hitRate": 40
+      }
+    ]
+  },
+  {
+    "file": "src/apis/base.js",
+    "strongestMatch": "chat-data-hook",
+    "targetComponent": "useXAgent/useXChat/XRequest",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "chat-data-hook",
+        "target": "useXAgent/useXChat/XRequest",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/apis/knowledge_api.js",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/AgentPanel.vue",
+    "strongestMatch": "conversation-management",
+    "targetComponent": "Conversations",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "conversation-management",
+        "target": "Conversations",
+        "hitRate": 33.33
+      },
+      {
+        "key": "thought-chain",
+        "target": "ThoughtChain",
+        "hitRate": 20
+      }
+    ]
+  },
+  {
+    "file": "src/components/AttachmentInputPanel.vue",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/DebugComponent.vue",
+    "strongestMatch": "chat-data-hook",
+    "targetComponent": "useXAgent/useXChat/XRequest",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "chat-data-hook",
+        "target": "useXAgent/useXChat/XRequest",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/EvaluationBenchmarks.vue",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/FileTable.vue",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/ImagePreviewComponent.vue",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/McpServerDetailModal.vue",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/ToolCallingResult/tools/ImageTool.vue",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/dashboard/AgentStatsComponent.vue",
+    "strongestMatch": "conversation-management",
+    "targetComponent": "Conversations",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "conversation-management",
+        "target": "Conversations",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/dashboard/StatsOverviewComponent.vue",
+    "strongestMatch": "conversation-management",
+    "targetComponent": "Conversations",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "conversation-management",
+        "target": "Conversations",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/composables/useApproval.js",
+    "strongestMatch": "conversation-management",
+    "targetComponent": "Conversations",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "conversation-management",
+        "target": "Conversations",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/layouts/AppLayout.vue",
+    "strongestMatch": "chat-data-hook",
+    "targetComponent": "useXAgent/useXChat/XRequest",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "chat-data-hook",
+        "target": "useXAgent/useXChat/XRequest",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/stores/chatUI.js",
+    "strongestMatch": "conversation-management",
+    "targetComponent": "Conversations",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "conversation-management",
+        "target": "Conversations",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/stores/user.js",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      },
+      {
+        "key": "chat-data-hook",
+        "target": "useXAgent/useXChat/XRequest",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/utils/file_utils.js",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/utils/messageProcessor.js",
+    "strongestMatch": "conversation-management",
+    "targetComponent": "Conversations",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "conversation-management",
+        "target": "Conversations",
+        "hitRate": 33.33
+      },
+      {
+        "key": "thought-chain",
+        "target": "ThoughtChain",
+        "hitRate": 20
+      }
+    ]
+  },
+  {
+    "file": "src/views/AntdxEvalView.vue",
+    "strongestMatch": "conversation-management",
+    "targetComponent": "Conversations",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "conversation-management",
+        "target": "Conversations",
+        "hitRate": 33.33
+      },
+      {
+        "key": "chat-bubble",
+        "target": "Bubble/BubbleList",
+        "hitRate": 33.33
+      },
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 25
+      }
+    ]
+  },
+  {
+    "file": "src/views/DataBaseInfoView.vue",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/views/GraphView.vue",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/views/LoginView.vue",
+    "strongestMatch": "attachments",
+    "targetComponent": "Attachments",
+    "hitRate": 33.33,
+    "allMatches": [
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/AgentConfigSidebar.vue",
+    "strongestMatch": "input-sender",
+    "targetComponent": "Sender",
+    "hitRate": 25,
+    "allMatches": [
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 25
+      }
+    ]
+  },
+  {
+    "file": "src/components/AiTextarea.vue",
+    "strongestMatch": "input-sender",
+    "targetComponent": "Sender",
+    "hitRate": 25,
+    "allMatches": [
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 25
+      }
+    ]
+  },
+  {
+    "file": "src/components/DepartmentManagementComponent.vue",
+    "strongestMatch": "input-sender",
+    "targetComponent": "Sender",
+    "hitRate": 25,
+    "allMatches": [
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 25
+      }
+    ]
+  },
+  {
+    "file": "src/components/KnowledgeBaseCard.vue",
+    "strongestMatch": "input-sender",
+    "targetComponent": "Sender",
+    "hitRate": 25,
+    "allMatches": [
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 25
+      }
+    ]
+  },
+  {
+    "file": "src/components/McpServersComponent.vue",
+    "strongestMatch": "input-sender",
+    "targetComponent": "Sender",
+    "hitRate": 25,
+    "allMatches": [
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 25
+      }
+    ]
+  },
+  {
+    "file": "src/components/ModelProvidersComponent.vue",
+    "strongestMatch": "input-sender",
+    "targetComponent": "Sender",
+    "hitRate": 25,
+    "allMatches": [
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 25
+      }
+    ]
+  },
+  {
+    "file": "src/components/QuerySection.vue",
+    "strongestMatch": "input-sender",
+    "targetComponent": "Sender",
+    "hitRate": 25,
+    "allMatches": [
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 25
+      }
+    ]
+  },
+  {
+    "file": "src/components/RefsComponent.vue",
+    "strongestMatch": "input-sender",
+    "targetComponent": "Sender",
+    "hitRate": 25,
+    "allMatches": [
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 25
+      }
+    ]
+  },
+  {
+    "file": "src/components/modals/BenchmarkGenerateModal.vue",
+    "strongestMatch": "input-sender",
+    "targetComponent": "Sender",
+    "hitRate": 25,
+    "allMatches": [
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 25
+      }
+    ]
+  },
+  {
+    "file": "src/components/modals/BenchmarkUploadModal.vue",
+    "strongestMatch": "input-sender",
+    "targetComponent": "Sender",
+    "hitRate": 25,
+    "allMatches": [
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 25
+      },
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/schema/TableEditModal.vue",
+    "strongestMatch": "input-sender",
+    "targetComponent": "Sender",
+    "hitRate": 25,
+    "allMatches": [
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 25
+      }
+    ]
+  },
+  {
+    "file": "src/views/DataSourceView.vue",
+    "strongestMatch": "input-sender",
+    "targetComponent": "Sender",
+    "hitRate": 25,
+    "allMatches": [
+      {
+        "key": "input-sender",
+        "target": "Sender",
+        "hitRate": 25
+      }
+    ]
+  },
+  {
+    "file": "src/components/RAGEvaluationTab.vue",
+    "strongestMatch": "thought-chain",
+    "targetComponent": "ThoughtChain",
+    "hitRate": 20,
+    "allMatches": [
+      {
+        "key": "thought-chain",
+        "target": "ThoughtChain",
+        "hitRate": 20
+      }
+    ]
+  },
+  {
+    "file": "src/components/ToolCallingResult/index.js",
+    "strongestMatch": "thought-chain",
+    "targetComponent": "ThoughtChain",
+    "hitRate": 20,
+    "allMatches": [
+      {
+        "key": "thought-chain",
+        "target": "ThoughtChain",
+        "hitRate": 20
+      },
+      {
+        "key": "attachments",
+        "target": "Attachments",
+        "hitRate": 33.33
+      }
+    ]
+  },
+  {
+    "file": "src/components/ToolCallingResult/tools/TaskTool.vue",
+    "strongestMatch": "thought-chain",
+    "targetComponent": "ThoughtChain",
+    "hitRate": 20,
+    "allMatches": [
+      {
+        "key": "thought-chain",
+        "target": "ThoughtChain",
+        "hitRate": 20
+      }
+    ]
+  },
+  {
+    "file": "src/components/ToolCallingResult/tools/TodoListTool.vue",
+    "strongestMatch": "thought-chain",
+    "targetComponent": "ThoughtChain",
+    "hitRate": 20,
+    "allMatches": [
+      {
+        "key": "thought-chain",
+        "target": "ThoughtChain",
+        "hitRate": 20
+      }
+    ]
+  }
+]

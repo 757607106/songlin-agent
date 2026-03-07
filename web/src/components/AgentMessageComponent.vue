@@ -280,28 +280,31 @@ const parsedData = computed(() => {
 <style lang="less" scoped>
 .message-box {
   display: inline-block;
-  border-radius: 1.5rem;
+  border-radius: 1.25rem;
   margin: 0.8rem 0;
-  padding: 0.625rem 1.25rem;
+  padding: 0.75rem 1.25rem;
   user-select: text;
   word-break: break-word;
   word-wrap: break-word;
   font-size: 15px;
-  line-height: 24px;
+  line-height: 1.6;
   box-sizing: border-box;
-  color: var(--gray-10000);
+  color: var(--gray-900);
   max-width: 100%;
   position: relative;
-  letter-spacing: 0.25px;
+  letter-spacing: 0.01em;
+  transition: all 0.2s ease;
 
   &.human,
   &.sent {
-    max-width: 95%;
-    color: var(--gray-1000);
+    max-width: 90%;
+    color: var(--main-900);
     background-color: var(--main-50);
     align-self: flex-end;
-    border-radius: 0.5rem;
-    padding: 0.5rem 1rem;
+    border-radius: 1.25rem;
+    border-bottom-right-radius: 4px;
+    padding: 0.75rem 1.25rem;
+    box-shadow: var(--shadow-sm);
   }
 
   &.assistant,

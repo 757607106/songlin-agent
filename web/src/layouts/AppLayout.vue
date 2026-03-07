@@ -148,7 +148,7 @@ provide('settingsModal', {
             <component
               class="icon"
               :is="route.path.startsWith(item.path) ? item.activeIcon : item.icon"
-              size="22"
+              size="26"
             />
           </a-tooltip>
         </RouterLink>
@@ -165,7 +165,7 @@ provide('settingsModal', {
               class="task-center-badge"
               size="small"
             >
-              <CircleCheck class="icon" size="22" />
+              <CircleCheck class="icon" size="26" />
             </a-badge>
           </a-tooltip>
         </div>
@@ -203,7 +203,7 @@ provide('settingsModal', {
 
 <style lang="less" scoped>
 // Less 变量定义
-@header-width: 50px;
+@header-width: 68px;
 
 .app-layout {
   display: flex;
@@ -251,9 +251,9 @@ div.header,
   }
 
   .logo {
-    width: 34px;
-    height: 34px;
-    margin: 6px 0 20px 0;
+    width: 42px;
+    height: 42px;
+    margin: 12px 0 24px 0;
 
     img {
       width: 100%;
@@ -273,14 +273,14 @@ div.header,
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
+    width: 48px;
+    height: 48px;
     padding: 4px;
     border: 1px solid transparent;
-    border-radius: 12px;
+    border-radius: 14px;
     background-color: transparent;
     color: var(--gray-1000);
-    font-size: 20px;
+    font-size: 24px;
     transition:
       background-color 0.2s ease-in-out,
       color 0.2s ease-in-out;

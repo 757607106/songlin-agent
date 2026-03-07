@@ -1314,29 +1314,34 @@ watch(
 
   .chat-header {
     user-select: none;
-    // position: sticky; // Not needed if .chat is flex col and header is fixed height item
-    // top: 0;
     z-index: 10;
     height: var(--header-height);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1rem 8px;
-    flex-shrink: 0; /* Prevent header from shrinking */
+    padding: 0 1rem;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--gray-100);
 
     .header__left,
     .header__right {
       display: flex;
       align-items: center;
+      gap: 0.5rem;
     }
 
     .switch-icon {
-      color: var(--gray-500);
+      color: var(--gray-400);
       transition: all 0.2s ease;
+      margin-left: 4px;
     }
 
     .agent-nav-btn:hover .switch-icon {
       color: var(--main-500);
+      transform: translateY(1px);
     }
   }
 }
@@ -1349,20 +1354,25 @@ watch(
   position: relative;
   width: 100%;
   contain: layout;
+  background: var(--gray-50); /* Subtle background for chat area */
 }
 
 .chat-main {
   flex: 1 1 0;
   display: flex;
   flex-direction: column;
-  overflow-y: auto; /* Scroll is here now */
+  overflow-y: auto;
   position: relative;
   transition:
     flex-basis 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  min-width: 0; /* Prevent flex item from overflowing */
+  min-width: 0;
+  
+  /* Add a subtle pattern or gradient if desired, or keep clean */
+  background: radial-gradient(circle at 50% 30%, var(--main-10) 0%, transparent 70%);
 
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gray-300) transparent;
 }
 
 .agent-panel-wrapper {

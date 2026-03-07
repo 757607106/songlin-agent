@@ -841,12 +841,7 @@ async def stream_agent_resume(
     await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_RUNNING, has_interrupt=False)
 
     try:
-        async for event in _iterate_with_next_timeout(stream_source, AGENT_STREAM_NEXT_TIMEOUT_SECONDS):
-            # 安全解包：兼容不同 LangGraph 版本的返回格式
-            if isinstance(event, tuple) and len(event) >= 2:
-                msg, metadata = event[0], event[1]
-            else:
-                msg, metadata = event, {}
+        async for msg, metadata in _iterate_with_next_timeout(stream_source, AGENT_STREAM_NEXT_TIMEOUT_SECONDS):
             msg_dict = msg.model_dump()
             if "id" not in msg_dict:
                 msg_dict["id"] = str(uuid.uuid4())

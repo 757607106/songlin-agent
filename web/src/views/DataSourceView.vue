@@ -1,385 +1,439 @@
 <template>
   <div class="datasource-container layout-container">
-    <HeaderComponent title="数据源管理" :loading="state.loading">
-      <template #actions>
-        <a-button type="primary" @click="openCreateModal">新建连接</a-button>
-      </template>
-    </HeaderComponent>
-
-    <!-- 连接创建/编辑模态框 -->
-    <a-modal
-      :open="state.modalVisible"
-      :title="state.editingId ? '编辑连接' : '新建连接'"
-      :confirm-loading="state.submitting"
-      @ok="handleSubmit"
-      @cancel="closeModal"
-      width="600px"
-      destroyOnClose
-    >
-      <a-form :model="formData" layout="vertical">
-        <a-form-item label="连接名称" required>
-          <a-input v-model:value="formData.name" placeholder="请输入连接名称" />
-        </a-form-item>
-
-        <a-form-item label="数据库类型" required>
-          <a-select v-model:value="formData.db_type" placeholder="请选择数据库类型">
-            <a-select-option value="mysql">MySQL</a-select-option>
-            <a-select-option value="postgresql">PostgreSQL</a-select-option>
-            <a-select-option value="sqlite">SQLite</a-select-option>
-          </a-select>
-        </a-form-item>
-
-        <template v-if="formData.db_type !== 'sqlite'">
-          <a-row :gutter="16">
-            <a-col :span="16">
-              <a-form-item label="主机地址">
-                <a-input v-model:value="formData.host" placeholder="localhost" />
-              </a-form-item>
-            </a-col>
-            <a-col :span="8">
-              <a-form-item label="端口">
-                <a-input-number
-                  v-model:value="formData.port"
-                  :placeholder="formData.db_type === 'mysql' ? '3306' : '5432'"
-                  style="width: 100%"
-                />
-              </a-form-item>
-            </a-col>
-          </a-row>
-
-          <a-row :gutter="16">
-            <a-col :span="12">
-              <a-form-item label="用户名">
-                <a-input v-model:value="formData.username" placeholder="请输入用户名" />
-              </a-form-item>
-            </a-col>
-            <a-col :span="12">
-              <a-form-item label="密码">
-                <a-input-password v-model:value="formData.password" placeholder="请输入密码" />
-              </a-form-item>
-            </a-col>
-          </a-row>
+    <div class="glass-panel">
+      <HeaderComponent title="数据源管理" :loading="state.loading">
+        <template #actions>
+          <a-button type="primary" @click="openCreateModal">
+            <template #icon><PlusOutlined /></template>
+            新建连接
+          </a-button>
         </template>
+      </HeaderComponent>
 
-        <a-form-item label="数据库名" required>
-          <a-input
-            v-model:value="formData.database"
-            :placeholder="formData.db_type === 'sqlite' ? '数据库文件路径' : '请输入数据库名'"
-          />
-        </a-form-item>
-      </a-form>
-    </a-modal>
+      <!-- 连接创建/编辑模态框 -->
+      <a-modal
+        :open="state.modalVisible"
+        :title="state.editingId ? '编辑连接' : '新建连接'"
+        :confirm-loading="state.submitting"
+        @ok="handleSubmit"
+        @cancel="closeModal"
+        width="600px"
+        destroyOnClose
+        class="custom-modal"
+        :maskClosable="false"
+      >
+        <a-form :model="formData" layout="vertical" class="custom-form">
+          <a-form-item label="连接名称" required>
+            <a-input v-model:value="formData.name" placeholder="请输入连接名称" size="large" />
+          </a-form-item>
 
-    <!-- Schema 查看模态框 -->
-    <a-modal
-      :open="state.schemaModalVisible"
-      :title="`数据源详情 - ${state.currentConnection?.name || ''}`"
-      @cancel="closeSchemaModal"
-      width="90vw"
-      :style="{ maxWidth: '1400px' }"
-      :body-style="{ height: '75vh', padding: '0', overflow: 'hidden' }"
-      :footer="null"
-    >
-      <div v-if="state.schemaLoading" class="schema-loading">
-        <a-spin size="large" />
-        <p>正在加载...</p>
-      </div>
-      <div v-else-if="state.schema" class="schema-content">
-        <a-tabs v-model:activeKey="state.activeTab" class="schema-tabs">
-          <a-tab-pane key="diagram" tab="ER 图">
-            <div class="diagram-container">
-              <SchemaFlow
-                :connection-id="state.currentConnection?.id"
-                :schema="state.schema"
-                @refresh="refreshSchema"
-              />
-            </div>
-          </a-tab-pane>
-          <a-tab-pane key="tables" tab="表结构">
-            <div class="tab-content">
-              <a-collapse accordion>
-                <a-collapse-panel
-                  v-for="table in state.schema.tables"
-                  :key="table.id"
-                  :header="table.table_name"
-                >
-                  <p v-if="table.table_comment" class="table-comment">
-                    {{ table.table_comment }}
-                  </p>
-                  <a-table
-                    :columns="columnTableColumns"
-                    :data-source="table.columns"
-                    :pagination="false"
-                    size="small"
-                    rowKey="id"
+          <a-form-item label="数据库类型" required>
+            <a-select v-model:value="formData.db_type" placeholder="请选择数据库类型" size="large">
+              <a-select-option value="mysql">MySQL</a-select-option>
+              <a-select-option value="postgresql">PostgreSQL</a-select-option>
+              <a-select-option value="sqlite">SQLite</a-select-option>
+            </a-select>
+          </a-form-item>
+
+          <template v-if="formData.db_type !== 'sqlite'">
+            <a-row :gutter="16">
+              <a-col :span="16">
+                <a-form-item label="主机地址">
+                  <a-input v-model:value="formData.host" placeholder="localhost" size="large" />
+                </a-form-item>
+              </a-col>
+              <a-col :span="8">
+                <a-form-item label="端口">
+                  <a-input-number
+                    v-model:value="formData.port"
+                    :placeholder="formData.db_type === 'mysql' ? '3306' : '5432'"
+                    style="width: 100%"
+                    size="large"
                   />
-                </a-collapse-panel>
-              </a-collapse>
-            </div>
-          </a-tab-pane>
-          <a-tab-pane key="relationships" tab="关联关系">
-            <div class="tab-content">
-              <a-table
-                :columns="relationshipColumns"
-                :data-source="state.schema.relationships"
-                :pagination="false"
-                size="small"
-                rowKey="id"
-              />
-            </div>
-          </a-tab-pane>
-          <a-tab-pane key="mappings" tab="值映射">
-            <div class="tab-content">
-              <div class="mappings-header">
-                <p class="mappings-desc">
-                  值映射用于将自然语言表达转换为数据库中的实际值，提高 SQL 生成准确性。
-                </p>
-                <a-button type="primary" size="small" @click="openMappingModal">
-                  <template #icon><PlusOutlined /></template>
-                  添加映射
-                </a-button>
+                </a-form-item>
+              </a-col>
+            </a-row>
+
+            <a-row :gutter="16">
+              <a-col :span="12">
+                <a-form-item label="用户名">
+                  <a-input v-model:value="formData.username" placeholder="请输入用户名" size="large" />
+                </a-form-item>
+              </a-col>
+              <a-col :span="12">
+                <a-form-item label="密码">
+                  <a-input-password v-model:value="formData.password" placeholder="请输入密码" size="large" />
+                </a-form-item>
+              </a-col>
+            </a-row>
+          </template>
+
+          <a-form-item label="数据库名" required>
+            <a-input
+              v-model:value="formData.database"
+              :placeholder="formData.db_type === 'sqlite' ? '数据库文件路径' : '请输入数据库名'"
+              size="large"
+            />
+          </a-form-item>
+        </a-form>
+      </a-modal>
+
+      <!-- Schema 查看模态框 -->
+      <a-modal
+        :open="state.schemaModalVisible"
+        :title="null"
+        @cancel="closeSchemaModal"
+        width="95vw"
+        :style="{ maxWidth: '1600px', top: '20px' }"
+        :body-style="{ height: 'calc(100vh - 40px)', padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }"
+        :footer="null"
+        class="full-screen-modal"
+        wrapClassName="full-screen-modal-wrap"
+      >
+        <div class="schema-modal-header">
+          <div class="header-title">
+            <DatabaseOutlined class="icon" />
+            <span>数据源详情 - {{ state.currentConnection?.name || '' }}</span>
+          </div>
+          <a-button type="text" class="close-btn" @click="closeSchemaModal">
+            <CloseOutlined />
+          </a-button>
+        </div>
+
+        <div v-if="state.schemaLoading" class="schema-loading">
+          <a-spin size="large" />
+          <p>正在加载 Schema 信息...</p>
+        </div>
+        
+        <div v-else-if="state.schema" class="schema-content">
+          <a-tabs v-model:activeKey="state.activeTab" class="schema-tabs" type="card">
+            <a-tab-pane key="diagram" tab="ER 关系图">
+              <div class="diagram-container">
+                <SchemaFlow
+                  :connection-id="state.currentConnection?.id"
+                  :schema="state.schema"
+                  @refresh="refreshSchema"
+                />
               </div>
-              <a-table
-                :columns="mappingColumns"
-                :data-source="state.valueMappings"
-                :pagination="false"
-                size="small"
-                rowKey="id"
-              >
-                <template #bodyCell="{ column, record }">
-                  <template v-if="column.key === 'action'">
-                    <a-popconfirm
-                      title="确定删除此映射？"
-                      @confirm="handleDeleteMapping(record.id)"
-                    >
-                      <a-button type="link" size="small" danger>删除</a-button>
-                    </a-popconfirm>
-                  </template>
-                </template>
-              </a-table>
-            </div>
-          </a-tab-pane>
-          <a-tab-pane key="skills" tab="业务技能">
-            <div class="tab-content">
-              <div class="mappings-header">
-                <p class="mappings-desc">按业务场景和指标生成 Skills，可供报表助手直接调用。</p>
-                <div style="display: flex; gap: 8px">
-                  <a-button size="small" @click="refreshSkills">刷新</a-button>
-                  <a-button type="primary" size="small" @click="openSkillModal">
+            </a-tab-pane>
+            <a-tab-pane key="tables" tab="表结构列表">
+              <div class="tab-content">
+                <a-collapse accordion ghost class="custom-collapse">
+                  <a-collapse-panel
+                    v-for="table in state.schema.tables"
+                    :key="table.id"
+                    :header="table.table_name"
+                  >
+                    <template #extra>
+                      <span class="table-comment-preview">{{ table.table_comment || '无注释' }}</span>
+                    </template>
+                    <div class="table-detail-wrapper">
+                      <p v-if="table.table_comment" class="table-comment-full">
+                        <InfoCircleOutlined /> {{ table.table_comment }}
+                      </p>
+                      <a-table
+                        :columns="columnTableColumns"
+                        :data-source="table.columns"
+                        :pagination="false"
+                        size="small"
+                        rowKey="id"
+                        bordered
+                        class="custom-table"
+                      />
+                    </div>
+                  </a-collapse-panel>
+                </a-collapse>
+              </div>
+            </a-tab-pane>
+            <a-tab-pane key="relationships" tab="关联关系">
+              <div class="tab-content">
+                <a-table
+                  :columns="relationshipColumns"
+                  :data-source="state.schema.relationships"
+                  :pagination="false"
+                  size="middle"
+                  rowKey="id"
+                  class="custom-table"
+                />
+              </div>
+            </a-tab-pane>
+            <a-tab-pane key="mappings" tab="值映射管理">
+              <div class="tab-content">
+                <div class="mappings-header">
+                  <div class="info-box">
+                    <InfoCircleOutlined class="icon" />
+                    <p class="mappings-desc">
+                      值映射用于将自然语言表达转换为数据库中的实际值，提高 SQL 生成准确性。例如将 "男" 映射为 "1"。
+                    </p>
+                  </div>
+                  <a-button type="primary" @click="openMappingModal">
                     <template #icon><PlusOutlined /></template>
-                    生成技能
+                    添加映射
                   </a-button>
                 </div>
+                <a-table
+                  :columns="mappingColumns"
+                  :data-source="state.valueMappings"
+                  :pagination="false"
+                  size="middle"
+                  rowKey="id"
+                  class="custom-table"
+                >
+                  <template #bodyCell="{ column, record }">
+                    <template v-if="column.key === 'action'">
+                      <a-popconfirm
+                        title="确定删除此映射？"
+                        @confirm="handleDeleteMapping(record.id)"
+                        placement="topRight"
+                      >
+                        <a-button type="text" size="small" danger>
+                          <template #icon><DeleteOutlined /></template>
+                        </a-button>
+                      </a-popconfirm>
+                    </template>
+                  </template>
+                </a-table>
               </div>
-              <a-table
-                :columns="[
-                  { title: '技能ID', dataIndex: 'id', key: 'id' },
-                  { title: '业务场景', dataIndex: 'business_scenario', key: 'business_scenario' },
-                  { title: '状态', dataIndex: 'status', key: 'status' },
-                  { title: '更新时间', dataIndex: 'updated_at', key: 'updated_at' },
-                  { title: '操作', key: 'action', width: 120 }
-                ]"
-                :data-source="state.skills"
-                :loading="state.skillsLoading"
-                :pagination="false"
-                size="small"
-                rowKey="id"
-              >
-                <template #bodyCell="{ column, record }">
-                  <template v-if="column.key === 'status'">
-                    <a-tag :color="record.status === 'published' ? 'green' : 'orange'">
-                      {{ record.status }}
-                    </a-tag>
-                  </template>
-                  <template v-if="column.key === 'action'">
-                    <a-button
-                      v-if="record.status !== 'published'"
-                      type="link"
-                      size="small"
-                      @click="handlePublishSkill(record.id)"
-                    >
-                      发布
+            </a-tab-pane>
+            <a-tab-pane key="skills" tab="业务技能">
+              <div class="tab-content">
+                <div class="mappings-header">
+                  <div class="info-box">
+                    <BulbOutlined class="icon" />
+                    <p class="mappings-desc">按业务场景和指标生成 Skills，可供报表助手直接调用。</p>
+                  </div>
+                  <div class="action-group">
+                    <a-button @click="refreshSkills">
+                      <template #icon><ReloadOutlined /></template>
+                      刷新
                     </a-button>
-                    <span v-else style="color: var(--gray-500)">已发布</span>
+                    <a-button type="primary" @click="openSkillModal">
+                      <template #icon><PlusOutlined /></template>
+                      生成技能
+                    </a-button>
+                  </div>
+                </div>
+                <a-table
+                  :columns="[
+                    { title: '技能ID', dataIndex: 'id', key: 'id', width: 100, ellipsis: true },
+                    { title: '业务场景', dataIndex: 'business_scenario', key: 'business_scenario' },
+                    { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
+                    { title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 180 },
+                    { title: '操作', key: 'action', width: 120, align: 'center' }
+                  ]"
+                  :data-source="state.skills"
+                  :loading="state.skillsLoading"
+                  :pagination="false"
+                  size="middle"
+                  rowKey="id"
+                  class="custom-table"
+                >
+                  <template #bodyCell="{ column, record }">
+                    <template v-if="column.key === 'status'">
+                      <a-tag :color="record.status === 'published' ? 'success' : 'warning'">
+                        {{ record.status === 'published' ? '已发布' : '草稿' }}
+                      </a-tag>
+                    </template>
+                    <template v-if="column.key === 'action'">
+                      <a-button
+                        v-if="record.status !== 'published'"
+                        type="primary"
+                        ghost
+                        size="small"
+                        @click="handlePublishSkill(record.id)"
+                      >
+                        发布
+                      </a-button>
+                      <span v-else class="text-secondary">无需操作</span>
+                    </template>
                   </template>
-                </template>
-              </a-table>
-            </div>
-          </a-tab-pane>
-        </a-tabs>
-      </div>
-    </a-modal>
+                </a-table>
+              </div>
+            </a-tab-pane>
+          </a-tabs>
+        </div>
+      </a-modal>
 
-    <a-modal
-      :open="state.skillModalVisible"
-      title="生成业务技能"
-      :confirm-loading="state.skillSubmitting"
-      @ok="handleGenerateSkill"
-      @cancel="state.skillModalVisible = false"
-      width="560px"
-    >
-      <a-form :model="skillForm" layout="vertical">
-        <a-form-item label="业务场景" required>
-          <a-input
-            v-model:value="skillForm.business_scenario"
-            placeholder="例如：销售漏斗转化分析、门店经营分析"
-          />
-        </a-form-item>
-        <a-form-item label="目标指标">
-          <a-textarea
-            v-model:value="skillForm.target_metrics"
-            :rows="3"
-            placeholder="多个指标用逗号分隔，例如：成交额, 转化率, 客单价"
-          />
-        </a-form-item>
-        <a-form-item label="约束条件">
-          <a-textarea
-            v-model:value="skillForm.constraints"
-            :rows="3"
-            placeholder="多个约束用分号分隔，例如：仅看华东区域;按月统计;排除退款单"
-          />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <!-- 值映射添加模态框 -->
-    <a-modal
-      :open="state.mappingModalVisible"
-      title="添加值映射"
-      :confirm-loading="state.mappingSubmitting"
-      @ok="handleAddMapping"
-      @cancel="state.mappingModalVisible = false"
-      width="500px"
-    >
-      <a-form :model="mappingForm" layout="vertical">
-        <a-form-item label="表名" required>
-          <a-select v-model:value="mappingForm.table_name" placeholder="请选择表" show-search>
-            <a-select-option
-              v-for="table in state.schema?.tables || []"
-              :key="table.table_name"
-              :value="table.table_name"
-            >
-              {{ table.table_name }}
-            </a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="列名" required>
-          <a-select
-            v-model:value="mappingForm.column_name"
-            placeholder="请选择列"
-            show-search
-            :disabled="!mappingForm.table_name"
-          >
-            <a-select-option
-              v-for="col in getTableColumns(mappingForm.table_name)"
-              :key="col.column_name"
-              :value="col.column_name"
-            >
-              {{ col.column_name }} ({{ col.column_type }})
-            </a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="自然语言值" required>
-          <a-input
-            v-model:value="mappingForm.natural_value"
-            placeholder="如：已完成、进行中、男、女"
-          />
-        </a-form-item>
-        <a-form-item label="数据库值" required>
-          <a-input
-            v-model:value="mappingForm.db_value"
-            placeholder="如：completed、in_progress、1、0"
-          />
-        </a-form-item>
-        <a-form-item label="描述">
-          <a-input v-model:value="mappingForm.description" placeholder="可选说明" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <!-- 加载状态 -->
-    <div v-if="state.loading" class="loading-container">
-      <a-spin size="large" />
-      <p>正在加载数据源...</p>
-    </div>
-
-    <!-- 空状态 -->
-    <div v-else-if="!state.connections || state.connections.length === 0" class="empty-state">
-      <h3 class="empty-title">暂无数据源</h3>
-      <p class="empty-description">创建数据库连接，开始使用 Text2SQL 功能</p>
-      <a-button type="primary" size="large" @click="openCreateModal">
-        <template #icon>
-          <PlusOutlined />
-        </template>
-        创建连接
-      </a-button>
-    </div>
-
-    <!-- 连接列表 -->
-    <div v-else class="connections-grid">
-      <div
-        v-for="conn in state.connections"
-        :key="conn.id"
-        class="connection-card"
-        :class="{ inactive: !conn.is_active }"
+      <a-modal
+        :open="state.skillModalVisible"
+        title="生成业务技能"
+        :confirm-loading="state.skillSubmitting"
+        @ok="handleGenerateSkill"
+        @cancel="state.skillModalVisible = false"
+        width="560px"
+        class="custom-modal"
       >
-        <div class="card-header">
-          <div class="card-title">
-            <Database class="db-icon" :size="18" />
-            <span>{{ conn.name }}</span>
-          </div>
-          <a-tag :color="getDbTypeColor(conn.db_type)">{{ conn.db_type.toUpperCase() }}</a-tag>
-        </div>
+        <a-form :model="skillForm" layout="vertical" class="custom-form">
+          <a-form-item label="业务场景" required>
+            <a-input
+              v-model:value="skillForm.business_scenario"
+              placeholder="例如：销售漏斗转化分析、门店经营分析"
+              size="large"
+            />
+          </a-form-item>
+          <a-form-item label="目标指标">
+            <a-textarea
+              v-model:value="skillForm.target_metrics"
+              :rows="3"
+              placeholder="多个指标用逗号分隔，例如：成交额, 转化率, 客单价"
+            />
+          </a-form-item>
+          <a-form-item label="约束条件">
+            <a-textarea
+              v-model:value="skillForm.constraints"
+              :rows="3"
+              placeholder="多个约束用分号分隔，例如：仅看华东区域;按月统计;排除退款单"
+            />
+          </a-form-item>
+        </a-form>
+      </a-modal>
 
-        <div class="card-body">
-          <div class="info-row">
-            <span class="label">主机:</span>
-            <span class="value"
-              >{{ conn.host || 'localhost' }}:{{ conn.port || getDefaultPort(conn.db_type) }}</span
+      <!-- 值映射添加模态框 -->
+      <a-modal
+        :open="state.mappingModalVisible"
+        title="添加值映射"
+        :confirm-loading="state.mappingSubmitting"
+        @ok="handleAddMapping"
+        @cancel="state.mappingModalVisible = false"
+        width="500px"
+        class="custom-modal"
+      >
+        <a-form :model="mappingForm" layout="vertical" class="custom-form">
+          <a-form-item label="表名" required>
+            <a-select v-model:value="mappingForm.table_name" placeholder="请选择表" show-search size="large">
+              <a-select-option
+                v-for="table in state.schema?.tables || []"
+                :key="table.table_name"
+                :value="table.table_name"
+              >
+                {{ table.table_name }}
+              </a-select-option>
+            </a-select>
+          </a-form-item>
+          <a-form-item label="列名" required>
+            <a-select
+              v-model:value="mappingForm.column_name"
+              placeholder="请选择列"
+              show-search
+              :disabled="!mappingForm.table_name"
+              size="large"
             >
-          </div>
-          <div class="info-row">
-            <span class="label">数据库:</span>
-            <span class="value">{{ conn.database }}</span>
-          </div>
-          <div class="info-row">
-            <span class="label">用户:</span>
-            <span class="value">{{ conn.username || '-' }}</span>
-          </div>
-        </div>
+              <a-select-option
+                v-for="col in getTableColumns(mappingForm.table_name)"
+                :key="col.column_name"
+                :value="col.column_name"
+              >
+                {{ col.column_name }} ({{ col.column_type }})
+              </a-select-option>
+            </a-select>
+          </a-form-item>
+          <a-form-item label="自然语言值" required>
+            <a-input
+              v-model:value="mappingForm.natural_value"
+              placeholder="如：已完成、进行中、男、女"
+              size="large"
+            />
+          </a-form-item>
+          <a-form-item label="数据库值" required>
+            <a-input
+              v-model:value="mappingForm.db_value"
+              placeholder="如：completed、in_progress、1、0"
+              size="large"
+            />
+          </a-form-item>
+          <a-form-item label="描述">
+            <a-input v-model:value="mappingForm.description" placeholder="可选说明" size="large" />
+          </a-form-item>
+        </a-form>
+      </a-modal>
 
-        <div class="card-footer">
-          <a-button size="small" @click="testConnection(conn)">
-            <template #icon>
-              <PlayCircleOutlined />
-            </template>
-            测试
-          </a-button>
-          <a-button size="small" @click="viewSchema(conn)">
-            <template #icon>
-              <TableOutlined />
-            </template>
-            Schema
-          </a-button>
-          <a-dropdown>
-            <a-button size="small">
-              <template #icon>
-                <MoreOutlined />
+      <!-- 加载状态 -->
+      <div v-if="state.loading" class="loading-container">
+        <a-spin size="large" />
+        <p>正在加载数据源...</p>
+      </div>
+
+      <!-- 空状态 -->
+      <div v-else-if="!state.connections || state.connections.length === 0" class="empty-state">
+        <div class="empty-icon-wrapper">
+          <DatabaseOutlined class="empty-icon" />
+        </div>
+        <h3 class="empty-title">暂无数据源</h3>
+        <p class="empty-description">创建数据库连接，开始使用 Text2SQL 功能</p>
+        <a-button type="primary" size="large" @click="openCreateModal">
+          <template #icon>
+            <PlusOutlined />
+          </template>
+          创建连接
+        </a-button>
+      </div>
+
+      <!-- 连接列表 -->
+      <div v-else class="connections-grid">
+        <div
+          v-for="conn in state.connections"
+          :key="conn.id"
+          class="connection-card"
+          :class="{ inactive: !conn.is_active }"
+        >
+          <div class="card-status-bar" :class="getDbTypeColor(conn.db_type)"></div>
+          <div class="card-header">
+            <div class="card-title">
+              <div class="db-icon-wrapper" :class="getDbTypeColor(conn.db_type)">
+                <DatabaseOutlined />
+              </div>
+              <span class="name" :title="conn.name">{{ conn.name }}</span>
+            </div>
+            <a-tag :color="getDbTypeColor(conn.db_type)" class="db-type-tag">{{ conn.db_type.toUpperCase() }}</a-tag>
+          </div>
+
+          <div class="card-body">
+            <div class="info-row">
+              <span class="label">主机</span>
+              <span class="value" :title="conn.host || 'localhost'"
+                >{{ conn.host || 'localhost' }}:{{ conn.port || getDefaultPort(conn.db_type) }}</span
+              >
+            </div>
+            <div class="info-row">
+              <span class="label">数据库</span>
+              <span class="value" :title="conn.database">{{ conn.database }}</span>
+            </div>
+            <div class="info-row">
+              <span class="label">用户</span>
+              <span class="value" :title="conn.username || '-'">{{ conn.username || '-' }}</span>
+            </div>
+          </div>
+
+          <div class="card-footer">
+            <a-tooltip title="测试连接">
+              <a-button type="text" size="small" class="action-btn" @click="testConnection(conn)">
+                <template #icon><ApiOutlined /></template>
+              </a-button>
+            </a-tooltip>
+            <a-tooltip title="查看 Schema">
+              <a-button type="text" size="small" class="action-btn" @click="viewSchema(conn)">
+                <template #icon><TableOutlined /></template>
+              </a-button>
+            </a-tooltip>
+            <div class="divider"></div>
+            <a-dropdown :trigger="['click']">
+              <a-button type="text" size="small" class="action-btn">
+                <template #icon><MoreOutlined /></template>
+              </a-button>
+              <template #overlay>
+                <a-menu class="custom-dropdown-menu">
+                  <a-menu-item @click="editConnection(conn)"> <EditOutlined /> 编辑连接 </a-menu-item>
+                  <a-menu-item @click="discoverSchema(conn)">
+                    <SyncOutlined /> 同步 Schema
+                  </a-menu-item>
+                  <a-menu-divider />
+                  <a-menu-item @click="deleteConnection(conn)" danger>
+                    <DeleteOutlined /> 删除连接
+                  </a-menu-item>
+                </a-menu>
               </template>
-            </a-button>
-            <template #overlay>
-              <a-menu>
-                <a-menu-item @click="editConnection(conn)"> <EditOutlined /> 编辑 </a-menu-item>
-                <a-menu-item @click="discoverSchema(conn)">
-                  <SyncOutlined /> 同步 Schema
-                </a-menu-item>
-                <a-menu-divider />
-                <a-menu-item @click="deleteConnection(conn)" danger>
-                  <DeleteOutlined /> 删除
-                </a-menu-item>
-              </a-menu>
-            </template>
-          </a-dropdown>
+            </a-dropdown>
+          </div>
         </div>
       </div>
     </div>
@@ -396,7 +450,13 @@ import {
   MoreOutlined,
   EditOutlined,
   SyncOutlined,
-  DeleteOutlined
+  DeleteOutlined,
+  DatabaseOutlined,
+  ApiOutlined,
+  CloseOutlined,
+  InfoCircleOutlined,
+  BulbOutlined,
+  ReloadOutlined
 } from '@ant-design/icons-vue'
 import { Database } from 'lucide-vue-next'
 import HeaderComponent from '@/components/HeaderComponent.vue'
@@ -462,21 +522,23 @@ const skillForm = reactive({
 })
 
 const columnTableColumns = [
-  { title: '列名', dataIndex: 'column_name', key: 'column_name' },
-  { title: '类型', dataIndex: 'column_type', key: 'column_type' },
+  { title: '列名', dataIndex: 'column_name', key: 'column_name', width: '20%' },
+  { title: '类型', dataIndex: 'column_type', key: 'column_type', width: '15%' },
   {
     title: '主键',
     dataIndex: 'is_primary_key',
     key: 'is_primary_key',
-    customRender: ({ text }) => (text ? 'Y' : '')
+    width: '10%',
+    customRender: ({ text }) => (text ? '是' : '-')
   },
   {
     title: '可空',
     dataIndex: 'is_nullable',
     key: 'is_nullable',
-    customRender: ({ text }) => (text ? 'Y' : 'N')
+    width: '10%',
+    customRender: ({ text }) => (text ? '是' : '否')
   },
-  { title: '注释', dataIndex: 'column_comment', key: 'column_comment' }
+  { title: '注释', dataIndex: 'column_comment', key: 'column_comment', ellipsis: true }
 ]
 
 const relationshipColumns = [
@@ -493,7 +555,7 @@ const mappingColumns = [
   { title: '自然语言值', dataIndex: 'natural_value', key: 'natural_value' },
   { title: '数据库值', dataIndex: 'db_value', key: 'db_value' },
   { title: '描述', dataIndex: 'description', key: 'description' },
-  { title: '操作', key: 'action', width: 80 }
+  { title: '操作', key: 'action', width: 80, align: 'center' }
 ]
 
 onMounted(() => {
@@ -807,160 +869,367 @@ function getDefaultPort(dbType) {
 
 <style scoped lang="less">
 .datasource-container {
-  min-height: 100vh;
-  background: var(--bg-container);
+  padding: 24px;
+  height: 100%;
+  overflow: hidden;
+  
+  .glass-panel {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 24px;
+  }
 }
 
-.loading-container,
+.loading-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  color: var(--gray-500);
+  gap: 16px;
+}
+
 .empty-state {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 80px 20px;
   text-align: center;
-
-  .empty-title {
-    font-size: 18px;
-    font-weight: 500;
-    color: var(--gray-800);
-    margin-bottom: 8px;
-  }
-
-  .empty-description {
-    color: var(--gray-500);
+  padding: 40px;
+  
+  .empty-icon-wrapper {
+    width: 80px;
+    height: 80px;
+    background: var(--gray-50);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     margin-bottom: 24px;
+    
+    .empty-icon {
+      font-size: 40px;
+      color: var(--gray-400);
+    }
+  }
+  
+  .empty-title {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--gray-900);
+    margin: 0 0 12px 0;
+  }
+  
+  .empty-description {
+    font-size: 14px;
+    color: var(--gray-500);
+    margin: 0 0 32px 0;
+    max-width: 400px;
   }
 }
 
 .connections-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
-  padding: 24px;
+  gap: 20px;
+  padding: 4px;
+  overflow-y: auto;
+  padding-bottom: 24px;
 }
 
 .connection-card {
-  background: var(--bg-card);
+  background: var(--gray-0);
   border: 1px solid var(--gray-200);
-  border-radius: 8px;
-  padding: 16px;
-  transition: all 0.2s;
-
+  border-radius: 16px;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  
   &:hover {
-    border-color: var(--primary-color);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px -8px var(--shadow-color-lg);
+    border-color: var(--primary-200);
+    
+    .card-footer {
+      background: var(--gray-50);
+      opacity: 1;
+    }
   }
-
+  
   &.inactive {
-    opacity: 0.6;
+    opacity: 0.7;
+    filter: grayscale(0.8);
+  }
+  
+  .card-status-bar {
+    height: 4px;
+    width: 100%;
+    
+    &.blue { background: #1677ff; }
+    &.green { background: #52c41a; }
+    &.orange { background: #fa8c16; }
+    &.default { background: var(--gray-400); }
+  }
+  
+  .card-header {
+    padding: 20px 20px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    
+    .card-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      
+      .db-icon-wrapper {
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        
+        &.blue { background: #e6f4ff; color: #1677ff; }
+        &.green { background: #f6ffed; color: #52c41a; }
+        &.orange { background: #fff7e6; color: #fa8c16; }
+        &.default { background: var(--gray-100); color: var(--gray-600); }
+      }
+      
+      .name {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--gray-900);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 140px;
+      }
+    }
+    
+    .db-type-tag {
+      margin: 0;
+      border: none;
+      font-weight: 600;
+      font-size: 12px;
+    }
+  }
+  
+  .card-body {
+    padding: 0 20px 20px;
+    flex: 1;
+    
+    .info-row {
+      display: flex;
+      margin-bottom: 8px;
+      font-size: 13px;
+      line-height: 1.6;
+      
+      &:last-child {
+        margin-bottom: 0;
+      }
+      
+      .label {
+        color: var(--gray-500);
+        width: 60px;
+        flex-shrink: 0;
+      }
+      
+      .value {
+        color: var(--gray-700);
+        font-family: var(--font-family-mono);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+    }
+  }
+  
+  .card-footer {
+    padding: 12px 20px;
+    border-top: 1px solid var(--gray-100);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--gray-0);
+    transition: background 0.3s;
+    
+    .action-btn {
+      color: var(--gray-600);
+      
+      &:hover {
+        color: var(--primary-600);
+        background: var(--primary-50);
+      }
+    }
+    
+    .divider {
+      width: 1px;
+      height: 16px;
+      background: var(--gray-200);
+    }
   }
 }
 
-.card-header {
+// Modal & Schema Styles
+.schema-modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
-
-  .card-title {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--gray-200);
+  background: var(--gray-0);
+  
+  .header-title {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 16px;
-    font-weight: 500;
+    gap: 10px;
+    font-size: 18px;
+    font-weight: 600;
     color: var(--gray-900);
-
-    .db-icon {
-      color: var(--primary-color);
+    
+    .icon {
+      color: var(--primary-500);
     }
   }
-}
-
-.card-body {
-  margin-bottom: 16px;
-
-  .info-row {
-    display: flex;
-    margin-bottom: 4px;
-    font-size: 13px;
-
-    .label {
-      color: var(--gray-500);
-      width: 60px;
-      flex-shrink: 0;
-    }
-
-    .value {
-      color: var(--gray-700);
-      word-break: break-all;
+  
+  .close-btn {
+    color: var(--gray-500);
+    &:hover {
+      color: var(--gray-800);
+      background: var(--gray-100);
     }
   }
-}
-
-.card-footer {
-  display: flex;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--gray-150);
-}
-
-.schema-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 40px;
 }
 
 .schema-content {
-  height: 100%;
+  flex: 1;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
 .schema-tabs {
-  height: 100%;
+  flex: 1;
   display: flex;
   flex-direction: column;
-
+  overflow: hidden;
+  
+  :deep(.ant-tabs-nav) {
+    margin: 0;
+    padding: 12px 24px 0;
+    background: var(--gray-50);
+    border-bottom: 1px solid var(--gray-200);
+  }
+  
   :deep(.ant-tabs-content) {
     flex: 1;
     overflow: hidden;
-  }
-
-  :deep(.ant-tabs-tabpane) {
     height: 100%;
   }
-}
-
-.diagram-container {
-  height: 100%;
 }
 
 .tab-content {
   height: 100%;
   overflow-y: auto;
-  padding: 16px;
+  padding: 24px;
+  background: var(--gray-50);
 }
 
-.table-comment {
-  color: var(--gray-600);
-  font-size: 13px;
-  margin-bottom: 12px;
+.diagram-container {
+  height: 100%;
+  background: var(--gray-50);
+}
+
+.custom-collapse {
+  background: transparent;
+  
+  :deep(.ant-collapse-item) {
+    background: var(--gray-0);
+    border: 1px solid var(--gray-200);
+    border-radius: 8px !important;
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  
+  :deep(.ant-collapse-header) {
+    padding: 12px 16px !important;
+    background: var(--gray-0);
+    font-weight: 600;
+  }
+  
+  .table-comment-preview {
+    color: var(--gray-500);
+    font-size: 13px;
+    font-weight: 400;
+  }
+}
+
+.table-detail-wrapper {
+  .table-comment-full {
+    margin-bottom: 16px;
+    padding: 10px 16px;
+    background: var(--primary-50);
+    border: 1px solid var(--primary-100);
+    border-radius: 6px;
+    color: var(--primary-700);
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
 }
 
 .mappings-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-
-  .mappings-desc {
-    color: var(--gray-600);
-    font-size: 13px;
-    margin: 0;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  background: var(--gray-0);
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--gray-200);
+  
+  .info-box {
+    display: flex;
+    gap: 12px;
+    
+    .icon {
+      font-size: 20px;
+      color: var(--primary-500);
+      margin-top: 2px;
+    }
+    
+    .mappings-desc {
+      margin: 0;
+      color: var(--gray-600);
+      font-size: 14px;
+      line-height: 1.5;
+      max-width: 600px;
+    }
   }
+  
+  .action-group {
+    display: flex;
+    gap: 12px;
+  }
+}
+
+:deep(.custom-table) {
+  .ant-table-thead > tr > th {
+    background: var(--gray-100);
+    font-weight: 600;
+  }
+}
+
+.text-secondary {
+  color: var(--gray-400);
+  font-size: 12px;
 }
 </style>

@@ -1,0 +1,220 @@
+{
+  "src/App.vue": [],
+  "src/apis/agent_api.js": [
+    "src/apis/base.js"
+  ],
+  "src/apis/base.js": [],
+  "src/apis/dashboard_api.js": [
+    "src/apis/base.js"
+  ],
+  "src/apis/department_api.js": [
+    "src/apis/base.js"
+  ],
+  "src/apis/graph_api.js": [
+    "src/apis/base.js"
+  ],
+  "src/apis/index.js": [],
+  "src/apis/knowledge_api.js": [
+    "src/apis/base.js"
+  ],
+  "src/apis/mcp_api.js": [
+    "src/apis/base.js"
+  ],
+  "src/apis/mindmap_api.js": [
+    "src/apis/base.js"
+  ],
+  "src/apis/system_api.js": [
+    "src/apis/base.js"
+  ],
+  "src/apis/tasker.js": [
+    "src/apis/base.js"
+  ],
+  "src/apis/text2sql_api.js": [
+    "src/apis/base.js"
+  ],
+  "src/components/AgentChatComponent.vue": [],
+  "src/components/AgentConfigSidebar.vue": [],
+  "src/components/AgentInputArea.vue": [],
+  "src/components/AgentMessageComponent.vue": [],
+  "src/components/AgentPanel.vue": [],
+  "src/components/AiTextarea.vue": [],
+  "src/components/AttachmentInputPanel.vue": [],
+  "src/components/AttachmentOptionsComponent.vue": [],
+  "src/components/BasicSettingsSection.vue": [],
+  "src/components/ChatSidebarComponent.vue": [],
+  "src/components/ChunkParamsConfig.vue": [],
+  "src/components/DatabaseHeader.vue": [],
+  "src/components/DebugComponent.vue": [],
+  "src/components/DepartmentManagementComponent.vue": [],
+  "src/components/EmbeddingModelSelector.vue": [],
+  "src/components/EvaluationBenchmarks.vue": [
+    "src/components/modals/BenchmarkUploadModal.vue",
+    "src/components/modals/BenchmarkGenerateModal.vue"
+  ],
+  "src/components/FileDetailModal.vue": [],
+  "src/components/FileTable.vue": [],
+  "src/components/FileUploadModal.vue": [],
+  "src/components/GraphCanvas.vue": [],
+  "src/components/GraphDetailPanel.vue": [],
+  "src/components/HeaderComponent.vue": [],
+  "src/components/HumanApprovalModal.vue": [],
+  "src/components/ImagePreviewComponent.vue": [],
+  "src/components/KnowledgeBaseCard.vue": [],
+  "src/components/KnowledgeGraphSection.vue": [],
+  "src/components/LoadingComponent.vue": [],
+  "src/components/MarkdownContentViewer.vue": [],
+  "src/components/McpServerDetailModal.vue": [],
+  "src/components/McpServersComponent.vue": [
+    "src/components/McpServerDetailModal.vue"
+  ],
+  "src/components/MessageInputComponent.vue": [],
+  "src/components/MindMapSection.vue": [],
+  "src/components/ModelProvidersComponent.vue": [],
+  "src/components/ModelSelectorComponent.vue": [],
+  "src/components/ProjectOverview.vue": [],
+  "src/components/QuerySection.vue": [],
+  "src/components/RAGEvaluationTab.vue": [
+    "src/components/SearchConfigModal.vue"
+  ],
+  "src/components/RefsComponent.vue": [],
+  "src/components/SearchConfigModal.vue": [],
+  "src/components/SettingsModal.vue": [],
+  "src/components/ShareConfigForm.vue": [],
+  "src/components/StatusBar.vue": [],
+  "src/components/TaskCenterDrawer.vue": [],
+  "src/components/ThemeToggle.vue": [],
+  "src/components/ToolCallingResult/BaseToolCall.vue": [],
+  "src/components/ToolCallingResult/ToolCallRenderer.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue",
+    "src/components/ToolCallingResult/tools/WebSearchTool.vue",
+    "src/components/ToolCallingResult/tools/KnowledgeBaseTool.vue",
+    "src/components/ToolCallingResult/tools/KnowledgeGraphTool.vue",
+    "src/components/ToolCallingResult/tools/CalculatorTool.vue",
+    "src/components/ToolCallingResult/tools/TodoListTool.vue",
+    "src/components/ToolCallingResult/tools/ImageTool.vue",
+    "src/components/ToolCallingResult/tools/TaskTool.vue",
+    "src/components/ToolCallingResult/tools/WriteFileTool.vue",
+    "src/components/ToolCallingResult/tools/ReadFileTool.vue",
+    "src/components/ToolCallingResult/tools/ListDirectoryTool.vue",
+    "src/components/ToolCallingResult/tools/SearchFileContentTool.vue",
+    "src/components/ToolCallingResult/tools/GlobTool.vue",
+    "src/components/ToolCallingResult/tools/EditFileTool.vue",
+    "src/components/ToolCallingResult/tools/MysqlQueryTool.vue",
+    "src/components/ToolCallingResult/tools/MysqlDescribeTableTool.vue",
+    "src/components/ToolCallingResult/tools/MysqlListTablesTool.vue"
+  ],
+  "src/components/ToolCallingResult/index.js": [],
+  "src/components/ToolCallingResult/tools/CalculatorTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/ToolCallingResult/tools/EditFileTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/ToolCallingResult/tools/GlobTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/ToolCallingResult/tools/ImageTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/ToolCallingResult/tools/KnowledgeBaseTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/ToolCallingResult/tools/KnowledgeGraphTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/ToolCallingResult/tools/ListDirectoryTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/ToolCallingResult/tools/MysqlDescribeTableTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/ToolCallingResult/tools/MysqlListTablesTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/ToolCallingResult/tools/MysqlQueryTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/ToolCallingResult/tools/ReadFileTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/ToolCallingResult/tools/SearchFileContentTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/ToolCallingResult/tools/TaskTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/ToolCallingResult/tools/TodoListTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/ToolCallingResult/tools/WebSearchTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/ToolCallingResult/tools/WriteFileTool.vue": [
+    "src/components/ToolCallingResult/BaseToolCall.vue"
+  ],
+  "src/components/UserInfoComponent.vue": [],
+  "src/components/UserManagementComponent.vue": [],
+  "src/components/dashboard/AgentStatsComponent.vue": [],
+  "src/components/dashboard/CallStatsComponent.vue": [],
+  "src/components/dashboard/FeedbackModalComponent.vue": [],
+  "src/components/dashboard/KnowledgeStatsComponent.vue": [],
+  "src/components/dashboard/StatsOverviewComponent.vue": [],
+  "src/components/dashboard/ToolStatsComponent.vue": [],
+  "src/components/dashboard/UserStatsComponent.vue": [],
+  "src/components/modals/BenchmarkGenerateModal.vue": [],
+  "src/components/modals/BenchmarkUploadModal.vue": [],
+  "src/components/schema/RelationshipEdge.vue": [],
+  "src/components/schema/RelationshipModal.vue": [],
+  "src/components/schema/SchemaFlow.vue": [
+    "src/components/schema/TableNode.vue",
+    "src/components/schema/RelationshipEdge.vue",
+    "src/components/schema/RelationshipModal.vue",
+    "src/components/schema/TableEditModal.vue"
+  ],
+  "src/components/schema/TableEditModal.vue": [],
+  "src/components/schema/TableNode.vue": [],
+  "src/composables/useAgentStreamHandler.js": [],
+  "src/composables/useApproval.js": [],
+  "src/composables/useGraph.js": [],
+  "src/composables/useMention.js": [],
+  "src/layouts/AppLayout.vue": [],
+  "src/layouts/BlankLayout.vue": [],
+  "src/main.js": [
+    "src/App.vue",
+    "src/router"
+  ],
+  "src/router/index.js": [],
+  "src/stores/agent.js": [],
+  "src/stores/chatUI.js": [],
+  "src/stores/config.js": [],
+  "src/stores/database.js": [],
+  "src/stores/graphStore.js": [],
+  "src/stores/info.js": [],
+  "src/stores/tasker.js": [],
+  "src/stores/theme.js": [],
+  "src/stores/user.js": [
+    "src/stores/agent.js"
+  ],
+  "src/utils/agentValidator.js": [],
+  "src/utils/chartColors.js": [],
+  "src/utils/chatExporter.js": [],
+  "src/utils/chunkUtils.js": [],
+  "src/utils/errorHandler.js": [],
+  "src/utils/file_utils.js": [],
+  "src/utils/kb_utils.js": [],
+  "src/utils/messageProcessor.js": [],
+  "src/utils/modelIcon.js": [],
+  "src/utils/scrollController.js": [],
+  "src/utils/time.js": [],
+  "src/views/AgentSingleView.vue": [],
+  "src/views/AgentView.vue": [],
+  "src/views/AntdxEvalView.vue": [],
+  "src/views/DashboardView.vue": [],
+  "src/views/DataBaseInfoView.vue": [],
+  "src/views/DataBaseView.vue": [],
+  "src/views/DataSourceView.vue": [],
+  "src/views/EmptyView.vue": [],
+  "src/views/GraphView.vue": [],
+  "src/views/HomeView.vue": [],
+  "src/views/LoginView.vue": []
+}

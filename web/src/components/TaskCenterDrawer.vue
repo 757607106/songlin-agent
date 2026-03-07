@@ -1,13 +1,29 @@
 <template>
-  <a-drawer :open="isOpen" :width="620" title="任务中心" placement="right" @close="handleClose">
-    <p>提醒：任务执行成功，只代表任务已执行完成，但是任务内部可能有问题已捕获，请注意观察日志。</p>
-    <div class="task-center">
+  <a-drawer 
+    :open="isOpen" 
+    :width="620" 
+    title="任务中心" 
+    placement="right" 
+    @close="handleClose"
+    class="task-center-drawer"
+    :headerStyle="{ borderBottom: '1px solid var(--gray-200)', padding: '20px 24px' }"
+    :bodyStyle="{ padding: '0', backgroundColor: 'var(--gray-50)' }"
+  >
+    <div class="task-center-container">
+      <div class="task-header-alert">
+        <InfoCircleOutlined class="icon" />
+        <p>任务执行成功仅代表流程结束，请查看日志确认业务结果。</p>
+      </div>
+      
       <div class="task-toolbar">
         <div class="task-filter-group">
-          <a-segmented v-model:value="statusFilter" :options="taskFilterOptions" />
+          <a-segmented v-model:value="statusFilter" :options="taskFilterOptions" class="custom-segmented" />
         </div>
         <div class="task-toolbar-actions">
-          <a-button type="text" @click="handleRefresh" :loading="loadingState"> 刷新 </a-button>
+          <a-button type="text" @click="handleRefresh" :loading="loadingState" class="refresh-btn">
+            <template #icon><ReloadOutlined /></template>
+            刷新
+          </a-button>
         </div>
       </div>
 
@@ -15,7 +31,7 @@
         v-if="lastErrorState"
         type="error"
         show-icon
-        class="task-alert"
+        class="task-error-alert"
         :message="lastErrorState.message || '加载任务信息失败'"
       />
 
@@ -27,52 +43,63 @@
           :class="taskCardClasses(task)"
           @click="handleTaskCardClick(task)"
         >
-          <!-- 状态指示器 -->
-          <div class="task-card-status-indicator" :class="`status-${task.status}`">
-            <span class="status-dot"></span>
-            <span class="status-text">{{ statusLabel(task.status) }}</span>
-          </div>
-
-          <div class="task-card-header">
-            <div class="task-card-info">
-              <div class="task-card-title">{{ task.name }}</div>
-              <div class="task-card-meta">
-                <span class="task-card-id">#{{ formatTaskId(task.id) }}</span>
-                <span class="task-card-type">{{ taskTypeLabel(task.type) }}</span>
-                <span v-if="getTaskDuration(task)" class="task-card-duration">{{
-                  getTaskDuration(task)
-                }}</span>
+          <div class="task-card-main">
+            <div class="task-card-header">
+              <div class="header-top">
+                <div class="task-type-badge">{{ taskTypeLabel(task.type) }}</div>
+                <div class="task-status-badge" :class="task.status">
+                  <span class="dot"></span>
+                  {{ statusLabel(task.status) }}
+                </div>
+              </div>
+              <div class="task-title" :title="task.name">{{ task.name }}</div>
+              <div class="task-meta">
+                <span class="id">ID: {{ formatTaskId(task.id) }}</span>
+                <span class="separator">•</span>
+                <span class="time">{{ formatTime(task.created_at, 'short') }}</span>
+                <template v-if="getTaskDuration(task)">
+                  <span class="separator">•</span>
+                  <span class="duration">耗时 {{ getTaskDuration(task) }}</span>
+                </template>
               </div>
             </div>
-          </div>
 
-          <!-- 进度信息 -->
-          <div v-if="!isTaskCompleted(task)" class="task-card-progress">
-            <a-progress
-              :percent="Math.round(task.progress || 0)"
-              :status="progressStatus(task.status)"
-              :stroke-width="4"
-              :show-info="false"
-            />
-            <span class="progress-text">{{ Math.round(task.progress || 0) }}%</span>
-          </div>
-          <div v-if="task.message && !isTaskCompleted(task)" class="task-card-message">
-            {{ task.message }}
-          </div>
-          <div v-if="task.error" class="task-card-error">
-            {{ task.error }}
-          </div>
-
-          <!-- 底部信息 -->
-          <div class="task-card-footer">
-            <div class="task-card-times">
-              <span v-if="task.started_at">开始 {{ formatTime(task.started_at, 'short') }}</span>
-              <span v-if="task.completed_at"
-                >· 完成 {{ formatTime(task.completed_at, 'short') }}</span
-              >
-              <span v-if="!task.started_at">创建 {{ formatTime(task.created_at, 'short') }}</span>
+            <!-- 进度条 -->
+            <div v-if="!isTaskCompleted(task)" class="task-progress-wrapper">
+              <div class="progress-info">
+                <span>执行进度</span>
+                <span class="percent">{{ Math.round(task.progress || 0) }}%</span>
+              </div>
+              <a-progress
+                :percent="Math.round(task.progress || 0)"
+                :status="progressStatus(task.status)"
+                :stroke-width="6"
+                :show-info="false"
+                strokeColor="var(--primary-500)"
+                trailColor="var(--gray-200)"
+              />
             </div>
-            <div class="task-card-actions">
+
+            <!-- 消息/错误提示 -->
+            <div v-if="task.message && !isTaskCompleted(task)" class="task-message-box">
+              <InfoCircleOutlined class="icon" />
+              <span class="text">{{ task.message }}</span>
+            </div>
+            <div v-if="task.error" class="task-error-box">
+              <CloseCircleOutlined class="icon" />
+              <span class="text">{{ task.error }}</span>
+            </div>
+          </div>
+
+          <!-- 底部操作栏 -->
+          <div class="task-card-footer">
+            <div class="footer-time">
+              <template v-if="task.started_at">
+                <ClockCircleOutlined class="icon" />
+                <span>开始于 {{ formatTime(task.started_at, 'short') }}</span>
+              </template>
+            </div>
+            <div class="footer-actions">
               <a-button type="text" size="small" @click.stop="handleDetail(task.id)">
                 详情
               </a-button>
@@ -88,7 +115,7 @@
               <a-button
                 type="text"
                 size="small"
-                danger
+                class="delete-btn"
                 v-if="isTaskCompleted(task)"
                 @click.stop="handleDelete(task.id, task.name)"
               >
@@ -99,10 +126,12 @@
         </div>
       </div>
 
-      <div v-else class="task-empty">
-        <div class="task-empty-icon">🗂️</div>
-        <div class="task-empty-title">暂无任务</div>
-        <div class="task-empty-subtitle">
+      <div v-else class="task-empty-state">
+        <div class="empty-icon">
+          <InboxOutlined />
+        </div>
+        <div class="empty-title">暂无任务</div>
+        <div class="empty-desc">
           当你提交知识库导入或其他后台任务时，会在这里展示实时进度（仅展示最近的 100 个任务）。
         </div>
       </div>
@@ -116,6 +145,13 @@ import { Modal } from 'ant-design-vue'
 import { useTaskerStore } from '@/stores/tasker'
 import { storeToRefs } from 'pinia'
 import { formatFullDateTime, formatRelative, parseToShanghai } from '@/utils/time'
+import { 
+  ReloadOutlined, 
+  InfoCircleOutlined, 
+  CloseCircleOutlined, 
+  ClockCircleOutlined,
+  InboxOutlined
+} from '@ant-design/icons-vue'
 
 const taskerStore = useTaskerStore()
 const {
@@ -141,33 +177,33 @@ const totalTaskCount = computed(() => totalCount.value || 0)
 const taskFilterOptions = computed(() => [
   {
     label: () =>
-      h('span', { class: 'task-filter-option' }, [
-        '全部',
-        h('span', { class: 'filter-count' }, totalTaskCount.value)
+      h('div', { class: 'custom-segment-item' }, [
+        h('span', '全部'),
+        h('span', { class: 'count-badge' }, totalTaskCount.value)
       ]),
     value: 'all'
   },
   {
     label: () =>
-      h('span', { class: 'task-filter-option' }, [
-        '进行中',
-        h('span', { class: 'filter-count' }, inProgressCount.value)
+      h('div', { class: 'custom-segment-item' }, [
+        h('span', '进行中'),
+        h('span', { class: 'count-badge active' }, inProgressCount.value)
       ]),
     value: 'active'
   },
   {
     label: () =>
-      h('span', { class: 'task-filter-option' }, [
-        '已完成',
-        h('span', { class: 'filter-count' }, completedCount.value)
+      h('div', { class: 'custom-segment-item' }, [
+        h('span', '已完成'),
+        h('span', { class: 'count-badge success' }, completedCount.value)
       ]),
     value: 'success'
   },
   {
     label: () =>
-      h('span', { class: 'task-filter-option' }, [
-        '失败',
-        h('span', { class: 'filter-count' }, failedTaskCount.value)
+      h('div', { class: 'custom-segment-item' }, [
+        h('span', '失败'),
+        h('span', { class: 'count-badge error' }, failedTaskCount.value)
       ]),
     value: 'failed'
   }
@@ -200,9 +236,9 @@ const TASK_TYPE_LABELS = {
 
 function taskCardClasses(task) {
   return {
-    'task-card--active': ACTIVE_CLASS_STATUSES.has(task.status),
-    'task-card--success': task.status === 'success',
-    'task-card--failed': task.status === 'failed'
+    'is-active': ACTIVE_CLASS_STATUSES.has(task.status),
+    'is-success': task.status === 'success',
+    'is-failed': task.status === 'failed'
   }
 }
 
@@ -250,17 +286,36 @@ function handleDetail(taskId) {
   if (!task) {
     return
   }
-  const detail = h('div', { class: 'task-detail' }, [
-    h('p', [h('strong', '状态：'), statusLabel(task.status)]),
-    h('p', [h('strong', '进度：'), `${Math.round(task.progress || 0)}%`]),
-    h('p', [h('strong', '更新时间：'), formatTime(task.updated_at)]),
-    h('p', [h('strong', '描述：'), task.message || '-']),
-    h('p', [h('strong', '错误：'), task.error || '-'])
+  const detail = h('div', { class: 'task-detail-modal-content' }, [
+    h('div', { class: 'detail-row' }, [
+      h('span', { class: 'label' }, '状态：'),
+      h('span', { class: 'value' }, statusLabel(task.status))
+    ]),
+    h('div', { class: 'detail-row' }, [
+      h('span', { class: 'label' }, '进度：'),
+      h('span', { class: 'value' }, `${Math.round(task.progress || 0)}%`)
+    ]),
+    h('div', { class: 'detail-row' }, [
+      h('span', { class: 'label' }, '更新时间：'),
+      h('span', { class: 'value' }, formatTime(task.updated_at))
+    ]),
+    h('div', { class: 'detail-row full' }, [
+      h('span', { class: 'label' }, '描述：'),
+      h('div', { class: 'value description' }, task.message || '-')
+    ]),
+    task.error ? h('div', { class: 'detail-row full error' }, [
+      h('span', { class: 'label' }, '错误信息：'),
+      h('div', { class: 'value error-text' }, task.error)
+    ]) : null
   ])
+  
   Modal.info({
     title: task.name,
     width: 520,
-    content: detail
+    icon: null,
+    content: detail,
+    maskClosable: true,
+    class: 'task-detail-modal'
   })
 }
 
@@ -312,7 +367,7 @@ function getTaskDuration(task) {
     if (seconds > 0) {
       return `${seconds}秒`
     }
-    return '小于1秒'
+    return '< 1秒'
   } catch {
     return null
   }
@@ -334,18 +389,6 @@ function statusLabel(status) {
   return map[status] || status
 }
 
-function statusColor(status) {
-  const map = {
-    pending: 'blue',
-    queued: 'blue',
-    running: 'processing',
-    success: 'green',
-    failed: 'red',
-    cancelled: 'gray'
-  }
-  return map[status] || 'default'
-}
-
 function progressStatus(status) {
   if (status === 'failed') return 'exception'
   if (status === 'cancelled') return 'normal'
@@ -356,286 +399,340 @@ function canCancel(task) {
   return ['pending', 'running', 'queued'].includes(task.status) && !task.cancel_requested
 }
 </script>
+
 <style scoped lang="less">
-.task-center {
+.task-center-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
   height: 100%;
+  padding: 24px;
+}
+
+.task-header-alert {
+  background: var(--primary-50);
+  border: 1px solid var(--primary-100);
+  border-radius: 8px;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  
+  .icon {
+    color: var(--primary-500);
+    font-size: 16px;
+  }
+  
+  p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--primary-700);
+  }
 }
 
 .task-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  padding: 4px 0;
+  margin-bottom: 16px;
   flex-wrap: wrap;
+  gap: 12px;
 }
 
-.task-filter-group {
-  flex-shrink: 0;
+:deep(.custom-segmented) {
+  background: var(--gray-200);
+  padding: 4px;
+  border-radius: 8px;
+  
+  .ant-segmented-item {
+    border-radius: 6px;
+  }
+  
+  .custom-segment-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 4px;
+    
+    .count-badge {
+      font-size: 12px;
+      background: var(--gray-300);
+      color: var(--gray-600);
+      padding: 0 6px;
+      border-radius: 10px;
+      min-width: 20px;
+      text-align: center;
+      
+      &.active { background: var(--primary-100); color: var(--primary-600); }
+      &.success { background: var(--success-100); color: var(--success-600); }
+      &.error { background: var(--error-100); color: var(--error-600); }
+    }
+  }
 }
 
-.task-toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-:deep(.filter-count) {
-  margin-left: 2px;
-  font-size: 12px;
-  color: var(--gray-400);
-}
-
-.task-toolbar-actions :deep(.ant-btn) {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 10px;
-}
-
-.task-alert {
-  margin-bottom: 4px;
+.task-error-alert {
+  margin-bottom: 16px;
+  border-radius: 8px;
 }
 
 .task-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
+  overflow-y: auto;
+  padding-right: 4px;
+  flex: 1;
+  
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background: var(--gray-300);
+    border-radius: 3px;
+  }
 }
 
 .task-card {
   background: var(--gray-0);
   border: 1px solid var(--gray-200);
-  border-radius: 10px;
-  padding: 14px 16px;
+  border-radius: 12px;
   transition: all 0.2s ease;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
   position: relative;
-}
-
-.task-card:hover {
-  border-color: var(--gray-300);
-  box-shadow: 0 2px 8px var(--shadow-1);
-}
-
-/* 状态指示器 */
-.task-card-status-indicator {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.status-pending .status-dot {
-  background: var(--color-info-500);
-}
-.status-pending .status-text {
-  color: var(--color-info-500);
-}
-
-.status-queued .status-dot {
-  background: var(--color-info-500);
-}
-.status-queued .status-text {
-  color: var(--color-info-500);
-}
-
-.status-running .status-dot {
-  background: var(--color-success-500);
-  animation: pulse 1.5s ease-in-out infinite;
-}
-.status-running .status-text {
-  color: var(--color-success-500);
-}
-
-.status-success .status-dot {
-  background: var(--color-success-500);
-}
-.status-success .status-text {
-  color: var(--color-success-500);
-}
-
-.status-failed .status-dot {
-  background: var(--color-error-500);
-}
-.status-failed .status-text {
-  color: var(--color-error-500);
-}
-
-.status-cancelled .status-dot {
-  background: var(--gray-500);
-}
-.status-cancelled .status-text {
-  color: var(--gray-600);
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
+  overflow: hidden;
+  
+  &:hover {
+    border-color: var(--primary-200);
+    box-shadow: 0 4px 12px var(--shadow-color);
+    transform: translateY(-2px);
   }
-  50% {
-    opacity: 0.6;
-    transform: scale(0.9);
+  
+  &.is-active {
+    border-left: 4px solid var(--primary-500);
   }
+  
+  &.is-success {
+    border-left: 4px solid var(--success-500);
+  }
+  
+  &.is-failed {
+    border-left: 4px solid var(--error-500);
+  }
+}
+
+.task-card-main {
+  padding: 16px 16px 12px;
 }
 
 .task-card-header {
-  padding-right: 80px; /* 为状态指示器留出空间 */
+  margin-bottom: 12px;
+  
+  .header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  
+  .task-type-badge {
+    font-size: 12px;
+    color: var(--gray-600);
+    background: var(--gray-100);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  
+  .task-status-badge {
+    font-size: 12px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+    
+    &.pending, &.queued { 
+      color: var(--primary-600); 
+      .dot { background: var(--primary-500); }
+    }
+    &.running { 
+      color: var(--primary-600); 
+      .dot { 
+        background: var(--primary-500); 
+        animation: pulse 1.5s infinite;
+      }
+    }
+    &.success { 
+      color: var(--success-600); 
+      .dot { background: var(--success-500); }
+    }
+    &.failed { 
+      color: var(--error-600); 
+      .dot { background: var(--error-500); }
+    }
+    &.cancelled { 
+      color: var(--gray-500); 
+      .dot { background: var(--gray-400); }
+    }
+  }
+  
+  .task-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--gray-900);
+    margin-bottom: 6px;
+    line-height: 1.4;
+  }
+  
+  .task-meta {
+    font-size: 12px;
+    color: var(--gray-500);
+    display: flex;
+    align-items: center;
+    
+    .id { font-family: monospace; }
+    .separator { margin: 0 6px; color: var(--gray-300); }
+  }
 }
 
-.task-card-info {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+.task-progress-wrapper {
+  margin-top: 12px;
+  
+  .progress-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--gray-600);
+    margin-bottom: 4px;
+    
+    .percent { font-weight: 600; color: var(--primary-600); }
+  }
 }
 
-.task-card-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--gray-900);
-  line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.task-card-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--gray-500);
-}
-
-.task-card-id {
-  font-family: 'SF Mono', 'Monaco', monospace;
-  letter-spacing: 0.03em;
-}
-
-.task-card-type {
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--gray-100);
-  font-size: 11px;
-}
-
-.task-card-duration {
-  color: var(--gray-400);
-}
-
-.task-card-progress {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.task-card-progress :deep(.ant-progress) {
-  flex: 1;
-}
-
-.progress-text {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--gray-500);
-  min-width: 36px;
-  text-align: right;
-}
-
-.task-card-message,
-.task-card-error {
-  font-size: 13px;
-  line-height: 1.45;
+.task-message-box, .task-error-box {
+  margin-top: 12px;
+  padding: 10px;
   border-radius: 6px;
-  padding: 10px 12px;
+  font-size: 13px;
+  display: flex;
+  gap: 8px;
+  line-height: 1.5;
+  
+  .icon { flex-shrink: 0; margin-top: 2px; }
 }
 
-.task-card-message {
-  background: var(--gray-100);
-  color: var(--gray-800);
+.task-message-box {
+  background: var(--gray-50);
+  color: var(--gray-700);
+  .icon { color: var(--primary-500); }
 }
 
-.task-card-error {
-  background: var(--color-error-50);
-  color: var(--color-error-500);
+.task-error-box {
+  background: var(--error-50);
+  color: var(--error-700);
+  .icon { color: var(--error-500); }
 }
 
 .task-card-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-top: 4px;
+  padding: 10px 16px;
   border-top: 1px solid var(--gray-100);
+  background: var(--gray-25);
+  
+  .footer-time {
+    font-size: 12px;
+    color: var(--gray-500);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  
+  .footer-actions {
+    display: flex;
+    gap: 8px;
+    
+    :deep(.ant-btn) {
+      padding: 0 4px;
+      height: 24px;
+      font-size: 12px;
+      
+      &:hover { background: rgba(0,0,0,0.05); }
+      &.delete-btn { color: var(--gray-500); &:hover { color: var(--error-500); } }
+    }
+  }
 }
 
-.task-card-times {
-  display: flex;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--gray-400);
-}
-
-.task-card-actions {
-  display: flex;
-  gap: 2px;
-}
-
-.task-card-actions :deep(.ant-btn) {
-  height: 28px;
-  padding: 0 10px;
-  font-size: 12px;
-  color: var(--gray-500);
-}
-
-.task-card-actions :deep(.ant-btn:hover) {
-  color: var(--gray-700);
-  background: var(--gray-50);
-}
-
-.task-empty {
-  margin-top: 32px;
-  padding: 40px 30px;
-  border-radius: 16px;
-  background: var(--gray-50);
-  border: 1px dashed var(--gray-300);
-  text-align: center;
-  color: var(--gray-600);
+.task-empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+  
+  .empty-icon {
+    font-size: 48px;
+    color: var(--gray-300);
+    margin-bottom: 16px;
+  }
+  
+  .empty-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--gray-800);
+    margin-bottom: 8px;
+  }
+  
+  .empty-desc {
+    font-size: 14px;
+    color: var(--gray-500);
+    max-width: 300px;
+  }
 }
 
-.task-empty-icon {
-  font-size: 28px;
+@keyframes pulse {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
 }
 
-.task-empty-title {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.task-empty-subtitle {
-  font-size: 13px;
-  max-width: 320px;
-  line-height: 1.5;
-  color: var(--gray-400);
+// Modal Styles
+:deep(.task-detail-modal-content) {
+  .detail-row {
+    display: flex;
+    margin-bottom: 12px;
+    
+    .label { width: 80px; color: var(--gray-500); font-weight: 500; flex-shrink: 0; }
+    .value { color: var(--gray-900); flex: 1; }
+    
+    &.full { flex-direction: column; .label { margin-bottom: 4px; } }
+    
+    .description {
+      background: var(--gray-50);
+      padding: 12px;
+      border-radius: 6px;
+      border: 1px solid var(--gray-200);
+      font-size: 13px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    
+    &.error {
+      .error-text {
+        background: var(--error-50);
+        color: var(--error-700);
+        padding: 12px;
+        border-radius: 6px;
+        border: 1px solid var(--error-200);
+        font-family: monospace;
+      }
+    }
+  }
 }
 </style>

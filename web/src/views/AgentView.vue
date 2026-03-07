@@ -379,10 +379,11 @@ const handlePreview = () => {
   width: 100%;
   height: 100vh;
   overflow: hidden;
+  background-color: var(--gray-0);
 }
 
 .agent-view-body {
-  --gap-radius: 6px;
+  --gap-radius: 12px;
   display: flex;
   flex-direction: row;
   width: 100%;
@@ -395,6 +396,7 @@ const handlePreview = () => {
     flex: 1;
     display: flex;
     flex-direction: column;
+    background: var(--gray-50);
   }
 
   .no-agent-selected {
@@ -402,28 +404,25 @@ const handlePreview = () => {
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: var(--bg-content);
+    background-color: var(--gray-50);
   }
 
   .no-agent-content {
     text-align: center;
-    color: var(--text-secondary);
+    color: var(--gray-500);
 
     svg {
       margin-bottom: 16px;
       opacity: 0.6;
+      color: var(--gray-400);
     }
 
     h3 {
       margin-bottom: 16px;
-      color: var(--text-primary);
+      color: var(--gray-800);
+      font-weight: 600;
     }
   }
-
-  // .content {
-  //   border-radius: var(--gap-radius);
-  //   border: 1px solid var(--gray-300);
-  // }
 }
 
 .content {
@@ -452,61 +451,77 @@ const handlePreview = () => {
   user-select: text;
 
   div[role='alert'] {
-    margin-bottom: 10px;
+    margin-bottom: 16px;
+    border-radius: 8px;
   }
 
   .description {
-    font-size: 12px;
-    color: var(--gray-700);
+    font-size: 13px;
+    color: var(--gray-500);
+    margin-top: 4px;
   }
 
   .form-actions {
     display: flex;
     justify-content: space-between;
-    margin-top: 20px;
-    gap: 10px;
+    margin-top: 24px;
+    gap: 12px;
 
     .form-actions-left,
     .form-actions-right {
       display: flex;
-      gap: 10px;
+      gap: 12px;
     }
   }
 }
 
 // 添加新按钮的样式
 .agent-action-buttons {
-  margin-top: 16px;
+  margin-top: 20px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .action-button {
   background-color: var(--gray-0);
-  border: 1px solid var(--main-20);
+  border: 1px solid var(--gray-200);
   text-align: left;
   height: auto;
-  padding: 8px 12px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
 
   &:hover {
-    background-color: var(--main-20);
+    background-color: var(--gray-50);
+    border-color: var(--main-300);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-1);
   }
 
   &.primary-action {
-    color: var(--main-color);
-    border-color: var(--main-color);
+    color: var(--main-600);
+    border-color: var(--main-200);
+    background-color: var(--main-50);
+
+    &:hover {
+      background-color: var(--main-100);
+      border-color: var(--main-400);
+    }
 
     &:disabled {
-      color: var(--main-color);
+      color: var(--main-400);
       background-color: var(--main-20);
       cursor: not-allowed;
       opacity: 0.7;
+      transform: none;
+      box-shadow: none;
     }
   }
 
   .anticon {
-    margin-right: 8px;
+    margin-right: 10px;
   }
 }
 
@@ -514,63 +529,81 @@ const handlePreview = () => {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  padding: 4px 0;
+  
   .agent-option-content {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
 
     p {
       margin: 0;
+      font-weight: 500;
+      color: var(--gray-900);
     }
 
     .agent-option-description {
       font-size: 12px;
-      color: var(--gray-700);
+      color: var(--gray-500);
       word-break: break-word;
       white-space: pre-wrap;
+      line-height: 1.4;
     }
   }
 }
+
 // 工具选择器样式（与项目风格一致）
 .tools-selector {
   .tools-summary {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    // margin-bottom: 8px;
-    padding: 8px 12px;
+    padding: 10px 14px;
     background: var(--gray-50);
-    border-radius: 8px;
+    border-radius: 10px;
     border: 1px solid var(--gray-200);
     font-size: 14px;
     color: var(--gray-700);
-    transition: border-color 0.2s ease;
+    transition: all 0.2s ease;
+
+    &:hover {
+      border-color: var(--main-300);
+      background: var(--gray-0);
+    }
 
     .tools-summary-left {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
 
       .tools-count {
         color: var(--gray-900);
+        font-weight: 600;
+        background: var(--gray-200);
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 12px;
       }
     }
 
     .select-tools-btn {
-      background: var(--main-color);
+      background: var(--main-500);
       border: none;
       color: var(--gray-0);
-      border-radius: 6px;
-      padding: 4px 12px;
+      border-radius: 8px;
+      padding: 6px 14px;
       font-size: 13px;
-      font-weight: 500;
-      height: 28px;
+      font-weight: 600;
+      height: 32px;
       transition: all 0.2s ease;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
 
       &:hover {
-        background: var(--main-color);
+        background: var(--main-600);
         transform: translateY(-1px);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);
       }
 
       &:active {
@@ -582,25 +615,39 @@ const handlePreview = () => {
   .selected-tools-preview {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
-    padding: 8px 0;
+    gap: 8px;
+    padding: 12px 0;
     background: none;
     border: none;
     min-height: 32px;
+    
     :deep(.ant-tag) {
       margin: 0;
-      padding: 4px 10px;
-      border-radius: 6px;
-      background: var(--gray-100);
-      border: 1px solid var(--gray-300);
-      color: var(--gray-900);
+      padding: 6px 12px;
+      border-radius: 8px;
+      background: var(--gray-0);
+      border: 1px solid var(--gray-200);
+      color: var(--gray-700);
       font-size: 13px;
-      font-weight: 400;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      transition: all 0.2s ease;
+      
+      &:hover {
+        border-color: var(--main-300);
+        color: var(--main-700);
+        background: var(--main-50);
+      }
+
       .anticon-close {
-        color: var(--gray-600);
-        margin-left: 4px;
+        color: var(--gray-400);
+        margin-left: 6px;
+        font-size: 12px;
+        transition: color 0.2s;
+        
         &:hover {
-          color: var(--gray-900);
+          color: var(--color-error-500);
         }
       }
     }
@@ -610,83 +657,100 @@ const handlePreview = () => {
 // 工具选择弹窗样式（与项目风格一致）
 .tools-modal {
   :deep(.ant-modal-content) {
-    border-radius: 8px;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+    border-radius: 16px;
+    box-shadow: var(--shadow-4);
     overflow: hidden;
+    padding: 0;
   }
   :deep(.ant-modal-header) {
     background: var(--gray-0);
-    border-bottom: 1px solid var(--gray-200);
-    padding: 16px 20px;
+    border-bottom: 1px solid var(--gray-100);
+    padding: 20px 24px;
+    margin-bottom: 0;
+    
     .ant-modal-title {
-      font-size: 16px;
-      font-weight: 600;
+      font-size: 18px;
+      font-weight: 700;
       color: var(--gray-900);
+      letter-spacing: -0.01em;
     }
   }
   :deep(.ant-modal-body) {
-    padding: 20px;
+    padding: 24px;
     background: var(--gray-0);
   }
   .tools-modal-content {
     .tools-search {
-      margin-bottom: 16px;
+      margin-bottom: 20px;
       :deep(.ant-input) {
-        border-radius: 8px;
-        border: 1px solid var(--gray-300);
-        padding: 8px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--gray-200);
+        padding: 10px 14px;
         font-size: 14px;
+        transition: all 0.2s;
+        
+        &:hover {
+          border-color: var(--main-300);
+        }
+        
         &:focus {
-          border-color: var(--main-color);
-          box-shadow: none;
+          border-color: var(--main-500);
+          box-shadow: 0 0 0 2px var(--main-100);
         }
       }
     }
     .tools-list {
-      max-height: 350px;
+      max-height: 400px;
       overflow-y: auto;
       border: 1px solid var(--gray-200);
-      border-radius: 8px;
-      margin-bottom: 16px;
+      border-radius: 12px;
+      margin-bottom: 20px;
       background: var(--gray-0);
+      
       .tool-item {
-        padding: 14px 16px;
+        padding: 16px 20px;
         border-bottom: 1px solid var(--gray-100);
         cursor: pointer;
-        transition:
-          background 0.2s,
-          border 0.2s;
-        border-left: 3px solid transparent;
+        transition: all 0.2s ease;
+        border-left: 4px solid transparent;
+        
         &:last-child {
           border-bottom: none;
         }
+        
         &:hover {
           background: var(--gray-50);
         }
+        
         &.selected {
-          background: var(--main-10);
-          border-left: 3px solid var(--main-color);
+          background: var(--main-50);
+          border-left-color: var(--main-500);
+          
+          .tool-content .tool-header .tool-name {
+            color: var(--main-700);
+          }
         }
+        
         .tool-content {
           .tool-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 6px;
+            margin-bottom: 8px;
+            
             .tool-name {
-              font-weight: 500;
+              font-weight: 600;
               color: var(--gray-900);
-              font-size: 14px;
-            }
-            .tool-indicator {
-              display: none;
+              font-size: 15px;
+              transition: color 0.2s;
             }
           }
+          
           .tool-description {
             font-size: 13px;
-            color: var(--gray-700);
-            margin-bottom: 6px;
-            line-height: 1.5;
+            color: var(--gray-500);
+            margin-bottom: 0;
+            line-height: 1.6;
             display: -webkit-box;
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
@@ -700,40 +764,53 @@ const handlePreview = () => {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 12px 0 0 0;
-      border-top: 1px solid var(--gray-200);
+      padding-top: 20px;
+      border-top: 1px solid var(--gray-100);
+      
       .selected-count {
-        font-size: 13px;
-        color: var(--gray-700);
-        background: none;
-        padding: 0;
-        border: none;
+        font-size: 14px;
+        color: var(--gray-600);
+        font-weight: 500;
       }
+      
       .modal-actions {
         display: flex;
-        gap: 10px;
+        gap: 12px;
+        
         :deep(.ant-btn) {
           border-radius: 8px;
-          font-weight: 500;
-          padding: 6px 18px;
-          height: 36px;
+          font-weight: 600;
+          padding: 8px 20px;
+          height: 40px;
           font-size: 14px;
+          transition: all 0.2s;
+          
           &.ant-btn-default {
             border: 1px solid var(--gray-300);
-            color: var(--gray-900);
+            color: var(--gray-700);
             background: var(--gray-0);
+            
             &:hover {
-              border-color: var(--main-color);
-              color: var(--main-color);
-              background: var(--main-10);
+              border-color: var(--gray-400);
+              color: var(--gray-900);
+              background: var(--gray-50);
             }
           }
+          
           &.ant-btn-primary {
-            background: var(--main-color);
+            background: var(--main-500);
             border: none;
             color: var(--gray-0);
+            box-shadow: 0 2px 4px rgba(6, 182, 212, 0.2);
+            
             &:hover {
-              background: var(--main-color);
+              background: var(--main-600);
+              transform: translateY(-1px);
+              box-shadow: 0 4px 8px rgba(6, 182, 212, 0.3);
+            }
+            
+            &:active {
+              transform: translateY(0);
             }
           }
         }
@@ -749,51 +826,62 @@ const handlePreview = () => {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
-    font-size: 12px;
-    color: var(--gray-600);
+    font-size: 13px;
+    color: var(--gray-500);
     height: 24px;
+    font-weight: 500;
   }
 
   .options-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 8px;
+    gap: 12px;
   }
 
   .option-card {
-    border: 1px solid var(--gray-300);
-    border-radius: 8px;
-    padding: 8px 12px;
+    border: 1px solid var(--gray-200);
+    border-radius: 10px;
+    padding: 12px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     background: var(--gray-0);
     user-select: none;
+    position: relative;
 
     &:hover {
-      border-color: var(--main-color);
+      border-color: var(--main-300);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-sm);
     }
 
     &.selected {
-      border-color: var(--main-color);
-      background: var(--main-10);
+      border-color: var(--main-500);
+      background: var(--main-50);
+      box-shadow: 0 0 0 1px var(--main-500);
 
       .option-indicator {
-        color: var(--main-color);
+        color: var(--main-500);
+        opacity: 1;
       }
 
       .option-text {
-        color: var(--main-color);
-        font-weight: 500;
+        color: var(--main-700);
+        font-weight: 600;
       }
     }
 
     &.unselected {
       .option-indicator {
-        color: var(--gray-400);
+        color: var(--gray-300);
+        opacity: 0;
       }
 
       .option-text {
         color: var(--gray-700);
+      }
+      
+      &:hover .option-indicator {
+        opacity: 0.5;
       }
     }
 
@@ -801,7 +889,7 @@ const handlePreview = () => {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
     }
 
     .option-text {
@@ -809,12 +897,13 @@ const handlePreview = () => {
       font-size: 14px;
       line-height: 1.4;
       word-break: break-word;
+      transition: color 0.2s;
     }
 
     .option-indicator {
       flex-shrink: 0;
-      font-size: 16px;
-      transition: color 0.2s ease;
+      font-size: 18px;
+      transition: all 0.2s ease;
     }
   }
 }
@@ -860,46 +949,61 @@ const handlePreview = () => {
 // 智能体选择弹窗样式
 .agent-modal {
   :deep(.ant-modal-content) {
-    border-radius: 8px;
+    border-radius: 16px;
     overflow: hidden;
+    box-shadow: var(--shadow-4);
+    padding: 0;
   }
 
   :deep(.ant-modal-header) {
     background: var(--gray-0);
-    border-bottom: 1px solid var(--gray-200);
-    padding: 16px 20px;
+    border-bottom: 1px solid var(--gray-100);
+    padding: 20px 24px;
+    margin-bottom: 0;
 
     .ant-modal-title {
-      font-size: 16px;
-      font-weight: 600;
+      font-size: 18px;
+      font-weight: 700;
       color: var(--gray-900);
+      letter-spacing: -0.01em;
     }
   }
 
   :deep(.ant-modal-body) {
-    padding: 20px;
-    background: var(--gray-0);
+    padding: 24px;
+    background: var(--gray-50);
   }
 
   .agent-modal-content {
     .agents-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 12px;
-      max-height: 500px;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+      max-height: 550px;
       overflow-y: auto;
+      padding: 4px; // Prevent shadow clipping
     }
 
     .agent-card {
       border: 1px solid var(--gray-200);
-      border-radius: 8px;
-      padding: 16px;
+      border-radius: 12px;
+      padding: 20px;
       cursor: pointer;
-      transition: border-color 0.2s ease;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       background: var(--gray-0);
+      box-shadow: var(--shadow-sm);
+      height: 100%;
+      display: flex;
+      flex-direction: column;
 
       &:hover {
-        border-color: var(--main-color);
+        border-color: var(--main-300);
+        transform: translateY(-4px);
+        box-shadow: var(--shadow-2);
+        
+        .agent-card-header .agent-card-title .agent-card-name {
+          color: var(--main-600);
+        }
       }
 
       .agent-card-header {
@@ -913,47 +1017,55 @@ const handlePreview = () => {
 
           .agent-card-name {
             font-size: 16px;
-            font-weight: 600;
+            font-weight: 700;
             color: var(--gray-900);
             line-height: 1.4;
+            transition: color 0.2s;
           }
         }
 
         .default-icon {
-          color: var(--color-warning-500);
-          font-size: 16px;
+          color: var(--gray-300);
+          font-size: 18px;
           flex-shrink: 0;
-          margin-left: 8px;
+          margin-left: 12px;
           cursor: pointer;
+          transition: all 0.2s;
 
           &:hover {
-            color: var(--color-warning-600);
+            color: var(--color-warning-500);
+            transform: scale(1.1);
+          }
+          
+          &.anticon-star-filled {
+            color: var(--color-warning-500);
           }
         }
       }
 
       .agent-card-description {
         font-size: 14px;
-        color: var(--gray-700);
-        line-height: 1.5;
+        color: var(--gray-500);
+        line-height: 1.6;
         display: -webkit-box;
         -webkit-line-clamp: 3;
         -webkit-box-orient: vertical;
         overflow: hidden;
         text-overflow: ellipsis;
+        flex: 1;
       }
 
       &.selected {
-        border-color: var(--main-color);
-        background: var(--main-20);
-        // outline: 2px solid var(--main-color);
+        border-color: var(--main-500);
+        background: var(--main-50);
+        box-shadow: 0 0 0 1px var(--main-500);
 
         .agent-card-header .agent-card-title .agent-card-name {
-          color: var(--main-color);
+          color: var(--main-700);
         }
 
         .agent-card-description {
-          color: var(--gray-900);
+          color: var(--gray-700);
         }
       }
     }
@@ -974,52 +1086,50 @@ const handlePreview = () => {
 // 自定义更多菜单样式
 .more-popup-menu {
   position: fixed;
-  min-width: 100px;
+  min-width: 140px;
   background: var(--gray-0);
-  border-radius: 10px;
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.08),
-    0 2px 8px rgba(0, 0, 0, 0.04);
+  border-radius: 12px;
+  box-shadow: var(--shadow-3);
   border: 1px solid var(--gray-100);
-  padding: 4px;
+  padding: 6px;
   z-index: 9999;
 
   .menu-item {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 6px 8px;
-    border-radius: 6px;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
     cursor: pointer;
-    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.2s ease;
     font-size: 14px;
-    color: var(--gray-900);
+    color: var(--gray-700);
     position: relative;
     user-select: none;
 
     .menu-icon {
       font-size: 16px;
-      color: var(--gray-600);
-      transition: color 0.15s ease;
+      color: var(--gray-500);
+      transition: color 0.2s ease;
       flex-shrink: 0;
     }
 
     .menu-text {
-      font-weight: 400;
+      font-weight: 500;
       letter-spacing: 0.01em;
     }
 
     &:hover {
-      background: var(--gray-50);
-      // color: var(--main-700);
+      background: var(--main-50);
+      color: var(--main-700);
 
-      // .menu-icon {
-      //   color: var(--main-600);
-      // }
+      .menu-icon {
+        color: var(--main-500);
+      }
     }
 
     &:active {
-      background: var(--gray-100);
+      background: var(--main-100);
     }
   }
 
@@ -1042,31 +1152,29 @@ const handlePreview = () => {
 @keyframes menuSlideIn {
   from {
     opacity: 0;
-    transform: translateY(-8px);
+    transform: translateY(-8px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
 @keyframes menuSlideOut {
   from {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
   to {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-4px) scale(0.96);
   }
 }
 
 // 响应式优化
 @media (max-width: 520px) {
   .more-popup-menu {
-    box-shadow:
-      0 12px 32px rgba(0, 0, 0, 0.12),
-      0 4px 12px rgba(0, 0, 0, 0.06);
+    box-shadow: var(--shadow-4);
   }
 }
 </style>

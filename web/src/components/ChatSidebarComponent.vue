@@ -322,7 +322,7 @@ const toggleCollapse = () => {
   &.sidebar-open {
     width: 280px;
     max-width: 300px;
-    border-right: 1px solid var(--gray-200);
+    border-right: 1px solid var(--gray-100);
   }
 
   .sidebar-header {
@@ -335,55 +335,63 @@ const toggleCollapse = () => {
     flex-shrink: 0;
 
     .header-title {
-      font-weight: 600;
+      font-weight: 700;
       font-size: 16px;
-      color: var(--gray-900);
+      color: var(--main-900);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
       flex: 1;
+      letter-spacing: -0.02em;
     }
 
     .header-actions {
       display: flex;
       align-items: center;
       gap: 8px;
-      // color: var(--gray-600);
     }
   }
 
   .conversation-list-top {
-    padding: 8px 12px;
+    padding: 12px 16px;
 
     .top-actions {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 10px;
     }
 
     .new-chat-btn {
       width: 100%;
-      padding: 8px 12px;
-      border-radius: 8px;
-      background-color: var(--gray-0);
-      color: var(--main-color);
-      border: 1px solid var(--gray-150);
-      transition: all 0.2s ease;
-      font-weight: 500;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--main-500), var(--main-600));
+      color: white;
+      border: none;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      font-weight: 600;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 8px;
-      box-shadow: 0 3px 4px rgba(0, 10, 20, 0.02);
+      box-shadow: 0 4px 12px rgba(6, 182, 212, 0.25);
 
       &:hover:not(:disabled) {
-        box-shadow: 0 3px 4px rgba(0, 10, 20, 0.07);
+        box-shadow: 0 6px 16px rgba(6, 182, 212, 0.35);
+        transform: translateY(-1px);
+        background: linear-gradient(135deg, var(--main-400), var(--main-500));
+      }
+
+      &:active {
+        transform: translateY(0);
       }
 
       &:disabled {
         cursor: not-allowed;
         opacity: 0.7;
+        background: var(--gray-300);
+        box-shadow: none;
       }
 
       .loading-icon {
@@ -408,39 +416,42 @@ const toggleCollapse = () => {
   .conversation-list {
     flex: 1;
     overflow-y: auto;
-    padding: 8px;
+    padding: 8px 16px;
 
     .chat-group {
-      margin-bottom: 16px;
+      margin-bottom: 20px;
     }
 
     .chat-group-title {
       padding: 4px 8px;
-      font-size: 12px;
-      color: var(--gray-500);
-      font-weight: 500;
+      font-size: 11px;
+      color: var(--gray-400);
+      font-weight: 600;
       text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
 
     .conversation-item {
       display: flex;
       align-items: center;
-      padding: 8px 12px;
-      border-radius: 6px;
+      padding: 10px 12px;
+      border-radius: 12px;
       margin: 4px 0;
       cursor: pointer;
-      transition: background-color 0.2s ease;
+      transition: all 0.2s ease;
       position: relative;
       overflow: hidden;
+      border: 1px solid transparent;
 
       .conversation-title {
         flex: 1;
         font-size: 14px;
-        color: var(--gray-800);
+        color: var(--gray-700);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
         transition: color 0.2s ease;
+        font-weight: 500;
       }
 
       .conversation-status {
@@ -451,8 +462,8 @@ const toggleCollapse = () => {
         margin-right: 28px;
 
         .status-dot {
-          width: 7px;
-          height: 7px;
+          width: 6px;
+          height: 6px;
           border-radius: 50%;
           display: inline-block;
         }
@@ -501,21 +512,27 @@ const toggleCollapse = () => {
         transition: opacity 0.3s ease;
 
         .more-btn {
-          color: var(--gray-600);
+          color: var(--gray-500);
           background-color: transparent !important;
-          padding: 0;
+          padding: 4px;
+          height: auto;
           &:hover {
-            color: var(--main-500);
-            background-color: transparent !important;
+            color: var(--main-600);
+            background-color: var(--main-50) !important;
+            border-radius: 4px;
           }
         }
       }
 
       &:hover {
-        background-color: var(--gray-25);
+        background-color: var(--gray-50);
+        
+        .conversation-title {
+          color: var(--gray-900);
+        }
 
         .actions-mask {
-          background: linear-gradient(to right, transparent, var(--gray-25) 20px);
+          background: linear-gradient(to right, transparent, var(--gray-50) 20px);
         }
 
         .actions-mask,
@@ -525,58 +542,63 @@ const toggleCollapse = () => {
       }
 
       &.active {
-        background-color: var(--gray-50);
+        background-color: var(--main-50);
+        border-color: var(--main-100);
 
         .conversation-title {
-          color: var(--main-600);
-          font-weight: 500;
+          color: var(--main-700);
+          font-weight: 600;
         }
         .actions-mask {
-          background: linear-gradient(to right, transparent, var(--gray-50) 20px);
+          background: linear-gradient(to right, transparent, var(--main-50) 20px);
         }
       }
     }
 
     .empty-list {
       text-align: center;
-      margin-top: 20px;
-      color: var(--gray-500);
-      font-size: 14px;
+      margin-top: 40px;
+      color: var(--gray-400);
+      font-size: 13px;
     }
   }
 }
 
 // Scrollbar styling
 .conversation-list::-webkit-scrollbar {
-  width: 5px;
+  width: 4px;
 }
 .conversation-list::-webkit-scrollbar-track {
   background: transparent;
 }
 .conversation-list::-webkit-scrollbar-thumb {
-  background: var(--gray-300);
-  border-radius: 5px;
+  background: var(--gray-200);
+  border-radius: 4px;
 }
 .conversation-list::-webkit-scrollbar-thumb:hover {
-  background: var(--gray-400);
+  background: var(--gray-300);
 }
 
 .toggle-sidebar.nav-btn {
   cursor: pointer;
-  height: 2.5rem;
+  height: 32px;
+  width: 32px;
   display: flex;
   justify-content: center;
   align-items: center;
   border-radius: 8px;
-  // padding: 0.5rem;
-  transition: background-color 0.3s;
+  transition: all 0.2s ease;
 
   svg {
-    stroke: var(--gray-600);
+    stroke: var(--gray-500);
+    transition: all 0.2s ease;
   }
 
-  &:hover svg {
-    stroke: var(--main-color);
+  &:hover {
+    background-color: var(--gray-100);
+    svg {
+      stroke: var(--gray-900);
+    }
   }
 }
 </style>

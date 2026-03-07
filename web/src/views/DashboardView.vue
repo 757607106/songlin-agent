@@ -1,5 +1,5 @@
 <template>
-  <div class="dashboard-container">
+  <div class="dashboard-container layout-container">
     <!-- 顶部状态条 -->
 
     <!-- 现代化顶部统计栏 -->
@@ -11,7 +11,9 @@
     <!-- Grid布局的主要内容区域 -->
     <div class="dashboard-grid">
       <!-- 调用统计模块 - 占据2x1网格 -->
-      <CallStatsComponent :loading="loading" ref="callStatsRef" />
+      <div class="grid-item call-stats">
+        <CallStatsComponent :loading="loading" ref="callStatsRef" />
+      </div>
 
       <!-- 用户活跃度分析 - 占据1x1网格 -->
       <div class="grid-item user-stats">
@@ -51,71 +53,79 @@
 
       <!-- 对话记录 - 占据1x1网格 -->
       <div class="grid-item conversations">
-        <a-card class="conversations-section" title="对话记录" :loading="loading">
-          <template #extra>
-            <a-space>
-              <a-input
-                v-model:value="filters.user_id"
-                placeholder="用户ID"
-                size="small"
-                style="width: 120px"
-                @change="handleFilterChange"
-              />
-              <a-select
-                v-model:value="filters.status"
-                placeholder="状态"
-                size="small"
-                style="width: 100px"
-                @change="handleFilterChange"
-              >
-                <a-select-option value="active">活跃</a-select-option>
-                <a-select-option value="deleted">已删除</a-select-option>
-                <a-select-option value="all">全部</a-select-option>
-              </a-select>
-              <a-button size="small" @click="loadConversations" :loading="loading"> 刷新 </a-button>
-              <a-button size="small" @click="feedbackModal.show()"> 反馈详情 </a-button>
-            </a-space>
-          </template>
-
-          <a-table
-            :columns="conversationColumns"
-            :data-source="conversations"
-            :loading="loading"
-            :pagination="conversationPagination"
-            @change="handleTableChange"
-            row-key="thread_id"
-            size="small"
-          >
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'title'">
-                <a
-                  @click="handleViewDetail(record)"
-                  class="conversation-title"
-                  :class="{ loading: loadingDetail }"
-                  >{{ record.title || '未命名对话' }}</a
-                >
-              </template>
-              <template v-if="column.key === 'status'">
-                <a-tag :color="record.status === 'active' ? 'green' : 'red'" size="small">
-                  {{ record.status === 'active' ? '活跃' : '已删除' }}
-                </a-tag>
-              </template>
-              <template v-if="column.key === 'updated_at'">
-                <span class="time-text">{{ formatDate(record.updated_at) }}</span>
-              </template>
-              <template v-if="column.key === 'actions'">
-                <a-button
-                  type="link"
+        <div class="glass-panel conversations-panel">
+          <div class="panel-header">
+            <h3 class="title">对话记录</h3>
+            <div class="actions">
+              <a-space>
+                <a-input
+                  v-model:value="filters.user_id"
+                  placeholder="用户ID"
                   size="small"
-                  @click="handleViewDetail(record)"
-                  :loading="loadingDetail"
+                  style="width: 120px"
+                  @change="handleFilterChange"
+                  class="custom-input"
+                />
+                <a-select
+                  v-model:value="filters.status"
+                  placeholder="状态"
+                  size="small"
+                  style="width: 100px"
+                  @change="handleFilterChange"
+                  class="custom-select"
                 >
-                  详情
-                </a-button>
+                  <a-select-option value="active">活跃</a-select-option>
+                  <a-select-option value="deleted">已删除</a-select-option>
+                  <a-select-option value="all">全部</a-select-option>
+                </a-select>
+                <a-button size="small" @click="loadConversations" :loading="loading"> 刷新 </a-button>
+                <a-button size="small" @click="feedbackModal.show()"> 反馈详情 </a-button>
+              </a-space>
+            </div>
+          </div>
+
+          <div class="panel-body">
+            <a-table
+              :columns="conversationColumns"
+              :data-source="conversations"
+              :loading="loading"
+              :pagination="conversationPagination"
+              @change="handleTableChange"
+              row-key="thread_id"
+              size="small"
+              class="custom-table"
+            >
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'title'">
+                  <a
+                    @click="handleViewDetail(record)"
+                    class="conversation-title"
+                    :class="{ loading: loadingDetail }"
+                    >{{ record.title || '未命名对话' }}</a
+                  >
+                </template>
+                <template v-if="column.key === 'status'">
+                  <a-tag :color="record.status === 'active' ? 'success' : 'error'" size="small">
+                    {{ record.status === 'active' ? '活跃' : '已删除' }}
+                  </a-tag>
+                </template>
+                <template v-if="column.key === 'updated_at'">
+                  <span class="time-text">{{ formatDate(record.updated_at) }}</span>
+                </template>
+                <template v-if="column.key === 'actions'">
+                  <a-button
+                    type="link"
+                    size="small"
+                    @click="handleViewDetail(record)"
+                    :loading="loadingDetail"
+                  >
+                    详情
+                  </a-button>
+                </template>
               </template>
-            </template>
-          </a-table>
-        </a-card>
+            </a-table>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -189,33 +199,33 @@ const conversationColumns = [
     title: '用户',
     dataIndex: 'user_id',
     key: 'user_id',
-    width: '80px',
+    width: '100px',
     ellipsis: true
   },
   {
     title: '消息数',
     dataIndex: 'message_count',
     key: 'message_count',
-    width: '60px',
+    width: '80px',
     align: 'center'
   },
   {
     title: '状态',
     dataIndex: 'status',
     key: 'status',
-    width: '70px',
+    width: '80px',
     align: 'center'
   },
   {
     title: '更新时间',
     dataIndex: 'updated_at',
     key: 'updated_at',
-    width: '120px'
+    width: '140px'
   },
   {
     title: '操作',
     key: 'actions',
-    width: '60px',
+    width: '80px',
     align: 'center'
   }
 ]
@@ -358,271 +368,150 @@ onUnmounted(() => {
 
 <style scoped lang="less">
 .dashboard-container {
-  // padding: 0 24px 24px 24px;
-  background-color: var(--gray-25);
-  min-height: calc(100vh - 64px);
+  background-color: var(--gray-50);
+  padding: 24px;
   overflow-x: hidden;
+}
+
+.modern-stats-header {
+  margin-bottom: 24px;
 }
 
 // Dashboard 特有的网格布局
 .dashboard-grid {
   display: grid;
-  padding: 16px;
-  grid-template-columns: 1fr 1fr 1fr;
-  grid-template-rows: auto auto;
-  gap: 16px;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: auto auto auto;
+  gap: 20px;
   margin-bottom: 24px;
-  min-height: 600px;
 
   .grid-item {
-    border-radius: 8px;
-    overflow: hidden;
+    border-radius: 16px;
+    // overflow: hidden; // Removed to allow shadows/popups
     display: flex;
     flex-direction: column;
-    min-height: 300px;
-    background-color: transparent;
-    border: none;
-    transition: all 0.2s ease;
-
-    &:hover {
-      .conversations-section,
-      .call-stats-section {
-        border-color: var(--gray-200);
-        box-shadow: 0 1px 3px 0 var(--shadow-100);
+    min-height: 320px;
+    
+    // 子组件应该自己包含 glass-panel 类或者类似样式
+    :deep(.glass-panel),
+    :deep(.ant-card) {
+      height: 100%;
+      border-radius: 16px;
+      border: 1px solid var(--gray-200);
+      background: var(--gray-0);
+      box-shadow: 0 4px 6px -1px var(--shadow-color);
+      transition: all 0.3s ease;
+      
+      &:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px var(--shadow-color-lg);
       }
     }
 
-    // 大页面布局：第一行 2x1 + 1x1，第二行 3x1x1
+    // 大页面布局
     &.call-stats {
       grid-column: 1 / 3;
       grid-row: 1 / 2;
-      min-height: 400px;
     }
 
     &.user-stats {
       grid-column: 3 / 4;
       grid-row: 1 / 2;
-      min-height: 400px;
     }
 
     &.agent-stats {
       grid-column: 1 / 2;
       grid-row: 2 / 3;
-      min-height: 350px;
     }
 
     &.tool-stats {
       grid-column: 2 / 3;
       grid-row: 2 / 3;
-      min-height: 350px;
     }
 
     &.knowledge-stats {
       grid-column: 3 / 4;
       grid-row: 2 / 3;
-      min-height: 350px;
     }
 
     &.conversations {
       grid-column: 1 / 4;
       grid-row: 3 / 4;
-      min-height: 300px;
+      min-height: 400px;
     }
   }
 }
 
-// Dashboard 特有的卡片样式
-.conversations-section,
-.call-stats-section {
-  background-color: var(--gray-0);
-  border: 1px solid var(--gray-200);
-  border-radius: 12px;
-  transition: all 0.2s ease;
-  box-shadow: none;
-
-  &:hover {
-    background-color: var(--gray-25);
-    border-color: var(--gray-200);
-    box-shadow: 0 1px 3px 0 var(--shadow-100);
-  }
-
-  :deep(.ant-card-head) {
-    border-bottom: 1px solid var(--gray-200);
-    min-height: 56px;
-    padding: 0 20px;
-    background-color: var(--gray-0);
-
-    .ant-card-head-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--gray-1000);
-    }
-  }
-
-  :deep(.ant-card-body) {
-    padding: 16px 20px;
-    background-color: var(--gray-0);
-  }
-
-  :deep(.ant-card-extra) {
-    .ant-space {
-      gap: 8px;
-    }
-  }
-}
-
-// Dashboard 特有的占位符样式
-.placeholder-content {
+// 对话记录面板样式
+.conversations-panel {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 200px;
-  color: var(--gray-600);
-
-  .placeholder-icon {
-    width: 64px;
-    height: 64px;
-    background-color: var(--gray-100);
-    border-radius: 12px;
+  padding: 0;
+  height: 100%;
+  
+  .panel-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--gray-200);
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    justify-content: center;
-    margin-bottom: 16px;
-
-    .icon {
-      width: 32px;
-      height: 32px;
-      color: var(--gray-500);
+    
+    .title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--gray-900);
+      margin: 0;
     }
   }
+  
+  .panel-body {
+    padding: 16px 24px;
+    flex: 1;
+    overflow: hidden;
+  }
+}
 
-  .placeholder-text {
-    font-size: 18px;
+.conversation-title {
+  color: var(--primary-600);
+  font-weight: 500;
+  transition: color 0.2s;
+  
+  &:hover {
+    color: var(--primary-700);
+    text-decoration: underline;
+  }
+}
+
+.time-text {
+  color: var(--gray-500);
+  font-size: 13px;
+}
+
+:deep(.custom-input),
+:deep(.custom-select .ant-select-selector) {
+  border-radius: 6px !important;
+}
+
+:deep(.custom-table) {
+  .ant-table-thead > tr > th {
+    background: var(--gray-50);
+    color: var(--gray-700);
     font-weight: 600;
-    color: var(--gray-800);
-    margin-bottom: 8px;
-  }
-
-  .placeholder-subtitle {
-    font-size: 14px;
-    color: var(--gray-600);
   }
 }
 
-// Dashboard 特有的对话记录样式
-.conversations-section {
-  .conversation-title {
-    color: var(--main-500);
-    text-decoration: none;
-    font-weight: 500;
-    font-size: 13px;
-    transition: color 0.2s ease;
-
-    &:hover {
-      color: var(--main-600);
-      text-decoration: underline;
-    }
-  }
-
-  .time-text {
-    color: var(--gray-600);
-    font-size: 12px;
-  }
-}
-
-// 调用统计模块样式
-.call-stats-section {
-  .call-stats-container {
-    .call-summary {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
-      margin-bottom: 24px;
-
-      .summary-card {
-        background: linear-gradient(135deg, var(--gray-50) 0%, var(--gray-100) 100%);
-        border: 1px solid var(--gray-200);
-        border-radius: 8px;
-        padding: 12px;
-        text-align: center;
-
-        .summary-value {
-          font-size: 16px;
-          font-weight: 600;
-          color: var(--gray-800);
-          margin-bottom: 4px;
-        }
-
-        .summary-label {
-          font-size: 11px;
-          color: var(--gray-500);
-          font-weight: 500;
-        }
-      }
-    }
-
-    .chart-container {
-      .chart {
-        width: 100%;
-        height: 280px;
-        border-radius: 8px;
-        overflow: hidden;
-      }
-    }
-  }
-
-  :deep(.ant-card-extra) {
-    .ant-space {
-      gap: 8px;
-    }
-  }
-}
-
-// Dashboard 特有的响应式设计
+// 响应式设计
 @media (max-width: 1200px) {
   .dashboard-grid {
     grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto auto auto;
-    gap: 16px;
-
+    
     .grid-item {
-      // 小页面布局：第一行 2x1，第二行和第三行各是 2x1x1
-      &.call-stats {
-        grid-column: 1 / 3;
-        grid-row: 1 / 2;
-        min-height: 350px;
-      }
-
-      &.user-stats {
-        grid-column: 1 / 2;
-        grid-row: 2 / 3;
-        min-height: 300px;
-      }
-
-      &.agent-stats {
-        grid-column: 2 / 3;
-        grid-row: 2 / 3;
-        min-height: 300px;
-      }
-
-      &.tool-stats {
-        grid-column: 1 / 2;
-        grid-row: 3 / 4;
-        min-height: 300px;
-      }
-
-      &.knowledge-stats {
-        grid-column: 2 / 3;
-        grid-row: 3 / 4;
-        min-height: 300px;
-      }
-
-      &.conversations {
-        grid-column: 1 / 3;
-        grid-row: 4 / 5;
-        min-height: 300px;
-      }
+      &.call-stats { grid-column: 1 / 3; }
+      &.user-stats { grid-column: 1 / 2; grid-row: 2 / 3; }
+      &.agent-stats { grid-column: 2 / 3; grid-row: 2 / 3; }
+      &.tool-stats { grid-column: 1 / 2; grid-row: 3 / 4; }
+      &.knowledge-stats { grid-column: 2 / 3; grid-row: 3 / 4; }
+      &.conversations { grid-column: 1 / 3; grid-row: 4 / 5; }
     }
   }
 }
@@ -634,69 +523,11 @@ onUnmounted(() => {
 
   .dashboard-grid {
     grid-template-columns: 1fr;
-    gap: 12px;
+    gap: 16px;
 
     .grid-item {
-      &.call-stats,
-      &.agent-stats,
-      &.user-stats,
-      &.tool-stats,
-      &.knowledge-stats,
-      &.conversations {
-        grid-column: 1 / 2;
-        grid-row: auto;
-        min-height: 300px;
-      }
-    }
-  }
-
-  .call-stats-section {
-    .call-stats-container {
-      .call-summary {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-
-        .summary-card {
-          padding: 12px;
-
-          .summary-value {
-            font-size: 18px;
-          }
-
-          .summary-label {
-            font-size: 11px;
-          }
-        }
-      }
-
-      .chart-container {
-        .chart {
-          height: 200px;
-        }
-      }
-    }
-  }
-
-  .placeholder-content {
-    height: 150px;
-
-    .placeholder-icon {
-      width: 48px;
-      height: 48px;
-      margin-bottom: 12px;
-
-      .icon {
-        width: 24px;
-        height: 24px;
-      }
-    }
-
-    .placeholder-text {
-      font-size: 16px;
-    }
-
-    .placeholder-subtitle {
-      font-size: 12px;
+      grid-column: 1 / 2 !important;
+      grid-row: auto !important;
     }
   }
 }

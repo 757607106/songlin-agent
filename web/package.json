@@ -21,6 +21,7 @@
     "@vue-flow/core": "^1.48.2",
     "@vueuse/core": "^13.9.0",
     "ant-design-vue": "^4.2.6",
+    "ant-design-x-vue": "^1.6.0",
     "d3": "^7.9.0",
     "dayjs": "^1.11.18",
     "echarts": "^6.0.0",
