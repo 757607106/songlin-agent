@@ -12,9 +12,9 @@ import os
 from collections.abc import Awaitable, Callable
 
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 
 from src.agents.common import BaseAgent, get_enabled_mcp_tools, load_chat_model
+from src.agents.common.deepagent_runtime import create_state_store_backend
 from src.agents.common.middlewares import save_attachments_to_fs
 from src.services.skill_generation_service import skill_generation_service
 from src.utils import logger
@@ -69,16 +69,6 @@ def _tool_map(tools: list) -> dict[str, object]:
 
 def _select_tools(tool_map: dict[str, object], names: list[str]) -> list:
     return [tool_map[name] for name in names if name in tool_map]
-
-
-def _create_composite_backend(rt):
-    return CompositeBackend(
-        default=StateBackend(rt),
-        routes={
-            "/memories/": StoreBackend(rt),
-            "/preferences/": StoreBackend(rt),
-        },
-    )
 
 
 async def _retry_async(
@@ -365,7 +355,7 @@ class SqlReporterAgent(BaseAgent):
             system_prompt=ROUTER_PROMPT,
             subagents=subagents,
             skills=skill_sources or None,
-            backend=_create_composite_backend,
+            backend=create_state_store_backend,
             middleware=[save_attachments_to_fs],
             checkpointer=await self._get_checkpointer(),
             store=await self._get_store(),

@@ -1,21 +1,14 @@
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 
 from src.agents.common import BaseAgent, load_chat_model
-from src.agents.common.middlewares import RuntimeConfigMiddleware, save_attachments_to_fs
+from src.agents.common.deepagent_runtime import (
+    create_main_middlewares,
+    create_state_store_backend,
+    create_subagent_middlewares,
+)
 from src.services.mcp_service import get_tools_from_all_servers
 
 from .context import DocOrganizerContext
-
-
-def _create_composite_backend(rt):
-    return CompositeBackend(
-        default=StateBackend(rt),
-        routes={
-            "/memories/": StoreBackend(rt),
-            "/preferences/": StoreBackend(rt),
-        },
-    )
 
 
 def _get_document_recognizer() -> dict:
@@ -107,25 +100,15 @@ class DocOrganizerAgent(BaseAgent):
         ]
         for subagent in subagents:
             subagent["model"] = model
-            subagent["middleware"] = [
-                RuntimeConfigMiddleware(
-                    extra_tools=all_mcp_tools,
-                    enable_model_override=False,
-                    enable_system_prompt_override=False,
-                    enable_tools_override=True,
-                )
-            ]
+            subagent["middleware"] = create_subagent_middlewares(model=model, mcp_tools=all_mcp_tools)
 
         graph = create_deep_agent(
             model=model,
             tools=[],
             system_prompt=context.system_prompt,
             subagents=subagents,
-            backend=_create_composite_backend,
-            middleware=[
-                RuntimeConfigMiddleware(extra_tools=all_mcp_tools),
-                save_attachments_to_fs,
-            ],
+            backend=create_state_store_backend,
+            middleware=create_main_middlewares(model=model, mcp_tools=all_mcp_tools),
             checkpointer=await self._get_checkpointer(),
             store=await self._get_store(),
             name="document_organizer_agent",

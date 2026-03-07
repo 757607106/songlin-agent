@@ -53,8 +53,8 @@ class CheckpointerManager:
             module_name = "langgraph.checkpoint.postgres.aio"
             try:
                 module = importlib.import_module(module_name)
-            except ImportError:
-                logger.warning(f"未安装 {module_name}，跳过 checkpointer 初始化")
+            except ImportError as e:
+                logger.warning(f"{module_name} 导入失败，跳过 checkpointer 初始化: {e}")
                 return False
 
             saver_cls = getattr(module, "AsyncPostgresSaver", None)
@@ -102,8 +102,8 @@ class CheckpointerManager:
             module_name = "langgraph.store.postgres.aio"
             try:
                 module = importlib.import_module(module_name)
-            except ImportError:
-                logger.warning(f"未安装 {module_name}，跳过 store 初始化")
+            except ImportError as e:
+                logger.warning(f"{module_name} 导入失败，跳过 store 初始化: {e}")
                 return False
 
             store_cls = getattr(module, "AsyncPostgresStore", None)

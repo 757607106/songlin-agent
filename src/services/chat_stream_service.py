@@ -123,15 +123,53 @@ async def update_thread_runtime_status(
     *,
     has_interrupt: bool = False,
     error_message: str | None = None,
+    extra_metadata: dict | None = None,
 ) -> None:
+    metadata = _runtime_status_metadata(
+        status,
+        has_interrupt=has_interrupt,
+        error_message=error_message,
+    )
+    if extra_metadata:
+        metadata.update(extra_metadata)
     await conv_repo.update_conversation(
         thread_id=thread_id,
-        metadata=_runtime_status_metadata(
-            status,
-            has_interrupt=has_interrupt,
-            error_message=error_message,
-        ),
+        metadata=metadata,
     )
+
+
+def _resolve_agent_config_context(config_item) -> dict:
+    raw = config_item.config_json or {}
+    if isinstance(raw, dict):
+        context = raw.get("context", raw)
+        if isinstance(context, dict):
+            return context
+    return {}
+
+
+def _build_dynamic_graph_kwargs(agent, input_context: dict | None) -> dict | None:
+    """Build DynamicAgent get_graph kwargs from runtime context."""
+    try:
+        context = agent._build_runtime_context(input_context)
+    except Exception as e:
+        logger.warning(f"Failed to build dynamic runtime context: {e}")
+        return None
+
+    return {
+        "model": context.model,
+        "system_prompt": context.system_prompt,
+        "multi_agent_mode": context.multi_agent_mode,
+        "team_goal": context.team_goal,
+        "task_scope": context.task_scope,
+        "communication_protocol": context.communication_protocol,
+        "max_parallel_tasks": context.max_parallel_tasks,
+        "allow_cross_agent_comm": context.allow_cross_agent_comm,
+        "subagents": context.subagents,
+        "supervisor_system_prompt": context.supervisor_system_prompt,
+        "tools": context.tools,
+        "knowledges": context.knowledges,
+        "mcps": context.mcps,
+    }
 
 
 def _build_state_files(attachments: list[dict]) -> dict:
@@ -363,21 +401,42 @@ async def check_and_handle_interrupts(
         if interrupt_info:
             question = "是否批准以下操作？"
             operation = "需要人工审批的操作"
+            allowed_decisions = ["approve", "reject", "edit"]
             if isinstance(interrupt_info, dict):
                 question = interrupt_info.get("question", question)
                 operation = interrupt_info.get("operation", operation)
+                allowed_decisions = interrupt_info.get("allowed_decisions") or allowed_decisions
             elif hasattr(interrupt_info, "question"):
                 question = getattr(interrupt_info, "question", question)
                 operation = getattr(interrupt_info, "operation", operation)
+                allowed_decisions = getattr(interrupt_info, "allowed_decisions", allowed_decisions)
+
+            if not isinstance(allowed_decisions, list) or not allowed_decisions:
+                allowed_decisions = ["approve", "reject", "edit"]
+            else:
+                allowed_decisions = [str(item).strip() for item in allowed_decisions if str(item).strip()]
+                if not allowed_decisions:
+                    allowed_decisions = ["approve", "reject", "edit"]
 
             meta["interrupt"] = {
                 "question": question,
                 "operation": operation,
                 "thread_id": thread_id,
+                "allowed_decisions": allowed_decisions,
             }
             if on_interrupt:
                 await on_interrupt(question, operation)
-            yield make_chunk(status="interrupted", message=question, meta=meta)
+            yield make_chunk(
+                status="human_approval_required",
+                message=question,
+                thread_id=thread_id,
+                interrupt_info={
+                    "question": question,
+                    "operation": operation,
+                    "allowed_decisions": allowed_decisions,
+                },
+                meta=meta,
+            )
 
     except Exception as e:
         logger.error(f"Error checking interrupts: {e}")
@@ -473,7 +532,7 @@ async def stream_agent_chat(
         thread_id = str(uuid.uuid4())
         logger.warning(f"No thread_id provided, generated new thread_id: {thread_id}")
 
-    agent_config = (config_item.config_json or {}).get("context", config_item.config_json or {})
+    agent_config = _resolve_agent_config_context(config_item)
     input_context = {
         "user_id": user_id,
         "thread_id": thread_id,
@@ -481,6 +540,7 @@ async def stream_agent_chat(
         "agent_config_id": agent_config_id,
         "agent_config": agent_config,
     }
+    dynamic_graph_kwargs = _build_dynamic_graph_kwargs(agent, input_context) if agent_id == "DynamicAgent" else None
 
     thread_lock = _thread_stream_locks[thread_id]
     if thread_lock.locked():
@@ -505,7 +565,13 @@ async def stream_agent_chat(
             )
             return
         conv_repo = ConversationRepository(db)
-        await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_RUNNING, has_interrupt=False)
+        await update_thread_runtime_status(
+            conv_repo,
+            thread_id,
+            RUNTIME_STATUS_RUNNING,
+            has_interrupt=False,
+            extra_metadata={"agent_config_id": agent_config_id} if agent_config_id is not None else None,
+        )
 
         try:
             await conv_repo.add_message_by_thread_id(
@@ -645,7 +711,10 @@ async def stream_agent_chat(
                             continue
                         last_tool_state_emit_at = now_ts
                         if state_graph is None:
-                            state_graph = await agent.get_graph()
+                            if dynamic_graph_kwargs is not None:
+                                state_graph = await agent.get_graph(**dynamic_graph_kwargs)
+                            else:
+                                state_graph = await agent.get_graph()
                         state = await state_graph.aget_state(langgraph_config)
                         agent_state = (
                             extract_agent_state(getattr(state, "values", {}), include_attachment_content=False)
@@ -667,7 +736,10 @@ async def stream_agent_chat(
             return
 
         if state_graph is None:
-            state_graph = await agent.get_graph()
+            if dynamic_graph_kwargs is not None:
+                state_graph = await agent.get_graph(**dynamic_graph_kwargs)
+            else:
+                state_graph = await agent.get_graph()
 
         async def _mark_interrupt(_question, _operation):
             await update_thread_runtime_status(
@@ -853,10 +925,14 @@ async def stream_agent_resume(
         "thread_id": thread_id,
         "department_id": department_id,
         "agent_config_id": agent_config_id,
-        "agent_config": (config_item.config_json or {}).get("context", config_item.config_json or {}),
+        "agent_config": _resolve_agent_config_context(config_item),
     }
     context = agent._build_runtime_context(input_context)
-    graph = await agent.get_graph()
+    dynamic_graph_kwargs = _build_dynamic_graph_kwargs(agent, input_context) if agent_id == "DynamicAgent" else None
+    if dynamic_graph_kwargs is not None:
+        graph = await agent.get_graph(**dynamic_graph_kwargs)
+    else:
+        graph = await agent.get_graph()
 
     stream_source = graph.astream(
         resume_command,
@@ -865,7 +941,13 @@ async def stream_agent_resume(
         stream_mode="messages",
     )
     conv_repo = ConversationRepository(db)
-    await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_RUNNING, has_interrupt=False)
+    await update_thread_runtime_status(
+        conv_repo,
+        thread_id,
+        RUNTIME_STATUS_RUNNING,
+        has_interrupt=False,
+        extra_metadata={"agent_config_id": agent_config_id} if agent_config_id is not None else None,
+    )
 
     try:
         async for msg, metadata in _iterate_with_next_timeout(stream_source, AGENT_STREAM_NEXT_TIMEOUT_SECONDS):
@@ -960,7 +1042,30 @@ async def get_agent_state_view(
         raise HTTPException(status_code=404, detail="对话线程不存在")
 
     agent = agent_manager.get_agent(agent_id)
-    graph = await agent.get_graph()
+    graph = None
+    if agent_id == "DynamicAgent":
+        input_context = {
+            "user_id": str(current_user_id),
+            "thread_id": thread_id,
+        }
+        config_id_value = (conversation.extra_metadata or {}).get("agent_config_id")
+        if config_id_value not in (None, ""):
+            try:
+                config_id = int(config_id_value)
+                config_repo = AgentConfigRepository(db)
+                config_item = await config_repo.get_by_id(config_id)
+                if config_item is not None and config_item.agent_id == agent_id:
+                    input_context["agent_config_id"] = config_item.id
+                    input_context["agent_config"] = _resolve_agent_config_context(config_item)
+            except Exception:
+                logger.warning(f"Failed to resolve dynamic config from thread metadata: {traceback.format_exc()}")
+
+        dynamic_graph_kwargs = _build_dynamic_graph_kwargs(agent, input_context)
+        if dynamic_graph_kwargs is not None:
+            graph = await agent.get_graph(**dynamic_graph_kwargs)
+
+    if graph is None:
+        graph = await agent.get_graph()
     langgraph_config = {"configurable": {"user_id": str(current_user_id), "thread_id": thread_id}}
     state = await graph.aget_state(langgraph_config)
     agent_state = extract_agent_state(getattr(state, "values", {})) if state else {}

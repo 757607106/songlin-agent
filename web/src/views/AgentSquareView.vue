@@ -249,6 +249,10 @@ const closeCreator = () => {
 }
 
 const handleSubmit = async ({ payload, configId }) => {
+  if (!payload) {
+    await fetchAll()
+    return
+  }
   try {
     if (configId) {
       await agentApi.updateAgentConfigProfile(DYNAMIC_AGENT_ID, configId, payload)

@@ -187,6 +187,7 @@ MCP (Model Context Protocol) 服务的配置现已全面支持通过系统管理
 - `POST /api/chat/agent/DynamicAgent/team/wizard`：自然语言草稿生成
 - `POST /api/chat/agent/DynamicAgent/team/validate`：职责/依赖/通信校验
 - `POST /api/chat/agent/DynamicAgent/team/create`：保存为配置
+- `POST /api/chat/agent/DynamicAgent/team/auto-create`：一句话自动组建并保存
 - `POST /api/chat/agent/DynamicAgent/team/benchmark`：三模式对比
 
 详见 [多 Agent 团队编排](/latest/advanced/team-orchestration)。

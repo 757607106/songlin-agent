@@ -21,16 +21,20 @@ async def lifespan(app: FastAPI):
         await pg_manager.ensure_knowledge_schema()
     except Exception as e:
         logger.error(f"Failed to initialize database during startup: {e}")
+        raise
 
     # 初始化共享 checkpointer (LangGraph 状态持久化)
     try:
         await checkpointer_manager.initialize()
+        await checkpointer_manager.initialize_store()
         # 注入到所有 Agent
         from src.agents import agent_manager
 
         agent_manager.set_shared_checkpointer(checkpointer_manager.get_checkpointer())
+        agent_manager.set_shared_store(checkpointer_manager.get_store())
     except Exception as e:
-        logger.warning(f"Failed to initialize shared checkpointer: {e}")
+        logger.error(f"Failed to initialize shared checkpointer: {e}")
+        raise
 
     # 初始化 Redis 连接 (可选，用于任务队列持久化)
     try:
@@ -43,6 +47,7 @@ async def lifespan(app: FastAPI):
         await init_mcp_servers()
     except Exception as e:
         logger.error(f"Failed to initialize MCP servers during startup: {e}")
+        raise
 
     # 初始化知识库管理器
     try:

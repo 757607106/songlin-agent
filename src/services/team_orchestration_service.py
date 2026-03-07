@@ -7,6 +7,10 @@ from graphlib import CycleError, TopologicalSorter
 from itertools import combinations
 from typing import Any
 
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from src import config as app_config
+from src.agents.common.models import load_chat_model
 from src.services.mcp_service import get_enabled_mcp_tools
 from src.utils import logger
 
@@ -44,6 +48,39 @@ _STOP_WORDS = {
     "prompt",
 }
 
+_TEAM_INTENT_KEYWORDS = {
+    "团队",
+    "team",
+    "multi-agent",
+    "multi agent",
+    "subagent",
+    "deepagents",
+    "deep_agents",
+    "agent 团队",
+    "agent团队",
+    "智能体团队",
+    "多智能体",
+    "协作团队",
+}
+
+_DEV_TEAM_KEYWORDS = {
+    "开发团队",
+    "研发团队",
+    "需求开发",
+    "软件开发",
+    "project",
+    "产品开发",
+    "deepagents",
+    "deep_agents",
+}
+
+_DEEP_AGENTS_CAPABILITY_HINT = (
+    "DeepAgents 默认具备以下核心机制："
+    "1) Planning：write_todos；"
+    "2) Subagents：task 委派；"
+    "3) Filesystem：ls/read_file/write_file/edit_file。"
+)
+
 
 class TeamOrchestrationService:
     """OpenClaw 风格团队编排服务。
@@ -57,6 +94,33 @@ class TeamOrchestrationService:
     def wizard_step(self, message: str, draft: dict[str, Any] | None = None) -> dict[str, Any]:
         merged = self._merge_draft(draft or {}, self._parse_user_message(message))
         normalized = self._normalize_team_payload(merged)
+        return self._build_wizard_result(normalized)
+
+    async def wizard_step_with_ai(
+        self,
+        message: str,
+        draft: dict[str, Any] | None = None,
+        *,
+        auto_complete: bool = True,
+    ) -> dict[str, Any]:
+        merged = self._merge_draft(draft or {}, self._parse_user_message(message))
+        normalized = self._normalize_team_payload(merged)
+
+        if auto_complete and self._should_auto_complete(message, normalized):
+            template_patch = self._build_builtin_team_patch(message, normalized)
+            if template_patch:
+                merged = self._merge_draft(merged, template_patch)
+                normalized = self._normalize_team_payload(merged)
+
+        if auto_complete and self._should_auto_complete(message, normalized):
+            ai_patch = await self._generate_team_patch_with_llm(message, normalized)
+            if ai_patch:
+                merged = self._merge_draft(merged, ai_patch)
+                normalized = self._normalize_team_payload(merged)
+
+        return self._build_wizard_result(normalized)
+
+    def _build_wizard_result(self, normalized: dict[str, Any]) -> dict[str, Any]:
         check = self.validate_team(normalized, strict=False)
         questions = self._build_missing_questions(normalized)
 
@@ -82,6 +146,175 @@ class TeamOrchestrationService:
             "questions": questions,
             "validation": check,
         }
+
+    def _should_auto_complete(self, message: str, team: dict[str, Any]) -> bool:
+        text = (message or "").strip().lower()
+        if not text:
+            return False
+
+        if not self._looks_like_team_intent(text):
+            return False
+
+        members = team.get("subagents") or []
+        if not members:
+            return True
+
+        if not team.get("team_goal") or not team.get("task_scope"):
+            return True
+
+        for member in members:
+            if not member.get("description") or not member.get("system_prompt"):
+                return True
+
+        return False
+
+    @staticmethod
+    def _looks_like_team_intent(text: str) -> bool:
+        normalized = text.lower()
+        return any(key in normalized for key in _TEAM_INTENT_KEYWORDS)
+
+    def _build_builtin_team_patch(self, message: str, current_team: dict[str, Any]) -> dict[str, Any]:
+        text = (message or "").strip().lower()
+        if not any(key in text for key in _DEV_TEAM_KEYWORDS):
+            return {}
+
+        goal = current_team.get("team_goal") or "完成一个可交付的软件需求开发项目"
+        scope = current_team.get("task_scope") or (
+            "覆盖需求澄清、任务拆解、前后端实现、测试验收、文档交付；"
+            "不包含生产部署与运维值班。"
+        )
+        base_prompt = (
+            "你是开发团队总调度 Agent。先调用 write_todos 做规划，再通过 task 将任务委派给子 Agent，"
+            "要求每个阶段的产物写入文件系统并可追踪。"
+        )
+        return {
+            "team_goal": goal,
+            "task_scope": scope,
+            "multi_agent_mode": current_team.get("multi_agent_mode")
+            if current_team.get("multi_agent_mode") in TEAM_MODES and current_team.get("multi_agent_mode") != "disabled"
+            else "deep_agents",
+            "communication_protocol": current_team.get("communication_protocol") or "hybrid",
+            "max_parallel_tasks": max(2, self._safe_int(current_team.get("max_parallel_tasks"), 4)),
+            "allow_cross_agent_comm": False,
+            "system_prompt": current_team.get("system_prompt") or base_prompt,
+            "subagents": [
+                {
+                    "name": "product_manager",
+                    "description": "澄清业务目标与验收标准，输出 PRD 与范围边界。",
+                    "system_prompt": (
+                        "你是产品经理子 Agent。仅负责需求澄清与验收标准定义。"
+                        "输出 `prd.md` 与 `acceptance_criteria.md`。"
+                    ),
+                    "depends_on": [],
+                    "communication_mode": "sync",
+                },
+                {
+                    "name": "project_manager",
+                    "description": "基于 PRD 做任务拆解、排期与依赖编排。",
+                    "system_prompt": (
+                        "你是项目经理子 Agent。先调用 write_todos 拆解任务，再形成执行计划。"
+                        "输出 `delivery_plan.md` 与 `task_breakdown.md`。"
+                    ),
+                    "depends_on": ["product_manager"],
+                    "communication_mode": "sync",
+                },
+                {
+                    "name": "frontend_engineer",
+                    "description": "实现前端页面、状态管理与交互逻辑。",
+                    "system_prompt": (
+                        "你是前端工程师子 Agent。仅负责前端实现与自测说明。"
+                        "输出 `frontend_changes.md`，并将关键实现写入文件系统。"
+                    ),
+                    "depends_on": ["project_manager"],
+                    "communication_mode": "hybrid",
+                },
+                {
+                    "name": "backend_engineer",
+                    "description": "实现后端 API、数据模型与服务逻辑。",
+                    "system_prompt": (
+                        "你是后端工程师子 Agent。仅负责后端实现与接口契约。"
+                        "输出 `backend_changes.md` 与 `api_contract.md`。"
+                    ),
+                    "depends_on": ["project_manager"],
+                    "communication_mode": "hybrid",
+                },
+                {
+                    "name": "qa_engineer",
+                    "description": "设计并执行测试，输出缺陷与回归结论。",
+                    "system_prompt": (
+                        "你是测试工程师子 Agent。仅负责测试设计、执行和结果汇总。"
+                        "输出 `test_report.md` 与 `defect_list.md`。"
+                    ),
+                    "depends_on": ["frontend_engineer", "backend_engineer"],
+                    "communication_mode": "sync",
+                },
+                {
+                    "name": "technical_writer",
+                    "description": "沉淀用户文档与交付说明。",
+                    "system_prompt": (
+                        "你是文档工程师子 Agent。仅负责交付文档编写。"
+                        "输出 `release_notes.md` 与 `user_guide.md`。"
+                    ),
+                    "depends_on": ["qa_engineer"],
+                    "communication_mode": "async",
+                },
+            ],
+        }
+
+    async def _generate_team_patch_with_llm(self, message: str, current_team: dict[str, Any]) -> dict[str, Any]:
+        try:
+            model = load_chat_model(app_config.default_model, temperature=0)
+            response = await model.ainvoke(
+                [
+                    SystemMessage(
+                        content=(
+                            "你是多 Agent 团队架构师。请把用户需求转换成 DynamicAgent 团队 JSON。"
+                            "必须保证职责边界清晰、依赖有向无环、可直接用于 DeepAgents 或 Supervisor。"
+                            f"{_DEEP_AGENTS_CAPABILITY_HINT}"
+                            "输出 JSON 字段：team_goal,task_scope,multi_agent_mode,communication_protocol,"
+                            "max_parallel_tasks,allow_cross_agent_comm,system_prompt,supervisor_system_prompt,subagents。"
+                            "subagents 每项必须包含 name,description,system_prompt,depends_on,communication_mode。"
+                            "只输出 JSON，不要额外解释。"
+                        )
+                    ),
+                    HumanMessage(
+                        content=(
+                            f"用户输入:\n{message}\n\n"
+                            f"当前草稿:\n{json.dumps(current_team, ensure_ascii=False)}\n\n"
+                            "如果用户描述是研发或需求开发团队，优先给出 6 角色："
+                            "product_manager,project_manager,frontend_engineer,backend_engineer,qa_engineer,technical_writer。"
+                        )
+                    ),
+                ]
+            )
+            parsed = self._parse_model_json(getattr(response, "content", response))
+            if not isinstance(parsed, dict):
+                return {}
+            normalized = self._normalize_team_payload(parsed)
+            if normalized.get("subagents"):
+                return normalized
+            return {}
+        except Exception as exc:
+            logger.warning(f"AI auto-complete team failed: {exc}")
+            return {}
+
+    def _parse_model_json(self, content: Any) -> dict[str, Any] | None:
+        if isinstance(content, dict):
+            return content
+        if isinstance(content, str):
+            return self._extract_json_payload(content)
+        if isinstance(content, list):
+            texts: list[str] = []
+            for block in content:
+                if isinstance(block, str):
+                    texts.append(block)
+                elif isinstance(block, dict):
+                    text = block.get("text") or block.get("content")
+                    if text:
+                        texts.append(str(text))
+            if texts:
+                return self._extract_json_payload("\n".join(texts))
+        return None
 
     def validate_team(self, team_payload: dict[str, Any], *, strict: bool = True) -> dict[str, Any]:
         team = self._normalize_team_payload(team_payload)
@@ -602,7 +835,9 @@ class TeamOrchestrationService:
                 "\n[Deep Agents 并行策略]\n"
                 "- 对同一执行阶段内无依赖冲突的子任务并行下发。\n"
                 "- 若并行结果冲突：优先选择依赖链更长的结果；若仍冲突，选择引用证据更完整的结果。\n"
-                "- 聚合输出必须明确说明冲突点和最终裁决依据。"
+                "- 聚合输出必须明确说明冲突点和最终裁决依据。\n"
+                "- 先调用 write_todos 完成规划，再使用 task 做子 Agent 委派。\n"
+                "- 每个关键中间结果写入文件系统（write_file/edit_file），最终结论引用对应文件。"
             )
 
         return "\n".join(instructions).strip()

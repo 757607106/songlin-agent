@@ -67,6 +67,7 @@ class AgentConfigUpdate(BaseModel):
 class TeamWizardRequest(BaseModel):
     message: str
     draft: dict | None = None
+    auto_complete: bool = True
 
 
 class TeamValidationRequest(BaseModel):
@@ -81,6 +82,14 @@ class TeamCreateRequest(BaseModel):
     set_default: bool = False
 
 
+class TeamAutoCreateRequest(BaseModel):
+    message: str
+    name: str | None = None
+    description: str | None = None
+    set_default: bool = True
+    auto_complete: bool = True
+
+
 class TeamDocsQueryRequest(BaseModel):
     query: str
     server_name: str = "langchain-docs"
@@ -93,6 +102,15 @@ class TeamBenchmarkRequest(BaseModel):
 
 
 chat = APIRouter(prefix="/chat", tags=["chat"])
+
+def _suggest_team_profile_name(team_goal: str, fallback_message: str) -> str:
+    source = (team_goal or fallback_message or "").strip()
+    if not source:
+        return "AI自动组建团队"
+    compact = source.replace("：", " ").replace(":", " ").strip()
+    compact = compact[:24].strip()
+    return compact or "AI自动组建团队"
+
 
 # =============================================================================
 # > === 智能体管理分组 ===
@@ -443,7 +461,11 @@ async def team_wizard_step(
     if agent_id != "DynamicAgent":
         raise HTTPException(status_code=422, detail="团队创建仅支持 DynamicAgent")
 
-    return team_orchestration_service.wizard_step(payload.message, payload.draft)
+    return await team_orchestration_service.wizard_step_with_ai(
+        payload.message,
+        payload.draft,
+        auto_complete=payload.auto_complete,
+    )
 
 
 @chat.post("/agent/{agent_id}/team/validate")
@@ -490,6 +512,61 @@ async def create_team_profile(
         item = await repo.set_default(config=item, updated_by=str(current_user.id))
 
     return {"config": item.to_dict(), "team_validation": team_orchestration_service.validate_team(payload.team)}
+
+
+@chat.post("/agent/{agent_id}/team/auto-create")
+async def auto_create_team_profile(
+    agent_id: str,
+    payload: TeamAutoCreateRequest,
+    current_user: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not current_user.department_id:
+        raise HTTPException(status_code=400, detail="当前用户未绑定部门")
+    if not agent_manager.get_agent(agent_id):
+        raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    if agent_id != "DynamicAgent":
+        raise HTTPException(status_code=422, detail="团队自动创建仅支持 DynamicAgent")
+
+    wizard = await team_orchestration_service.wizard_step_with_ai(
+        payload.message,
+        draft=None,
+        auto_complete=payload.auto_complete,
+    )
+    draft = wizard.get("draft") or {}
+    if not wizard.get("is_complete"):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "AI 已生成草稿，但仍缺少必要字段",
+                "questions": wizard.get("questions") or [],
+                "draft": draft,
+                "validation": wizard.get("validation") or {},
+            },
+        )
+
+    runtime_context = team_orchestration_service.build_runtime_context(draft, strict=True)
+    profile_name = payload.name or _suggest_team_profile_name(runtime_context.get("team_goal", ""), payload.message)
+    profile_desc = payload.description or runtime_context.get("task_scope") or runtime_context.get("team_goal")
+
+    repo = AgentConfigRepository(db)
+    item = await repo.create(
+        department_id=current_user.department_id,
+        agent_id=agent_id,
+        name=profile_name,
+        description=profile_desc,
+        config_json={"context": runtime_context},
+        is_default=payload.set_default,
+        created_by=str(current_user.id),
+    )
+    if payload.set_default:
+        item = await repo.set_default(config=item, updated_by=str(current_user.id))
+
+    return {
+        "config": item.to_dict(),
+        "wizard": wizard,
+        "team_validation": team_orchestration_service.validate_team(draft, strict=True),
+    }
 
 
 @chat.post("/agent/{agent_id}/team/langchain-docs")

@@ -65,6 +65,52 @@ def test_wizard_step_reports_missing_required_fields():
     assert "任务范围" in result["questions"][0] or "子Agent" in "".join(result["questions"])
 
 
+def test_wizard_step_with_ai_autofills_dev_team():
+    service = TeamOrchestrationService()
+    result = asyncio.run(service.wizard_step_with_ai("帮我组建一个 DeepAgents 需求开发团队"))
+
+    assert result["is_complete"] is True
+    draft = result["draft"]
+    assert draft["multi_agent_mode"] == "deep_agents"
+    names = {sa["name"] for sa in draft["subagents"]}
+    assert {
+        "product_manager",
+        "project_manager",
+        "frontend_engineer",
+        "backend_engineer",
+        "qa_engineer",
+        "technical_writer",
+    }.issubset(names)
+
+
+def test_wizard_step_with_ai_uses_llm_patch(monkeypatch):
+    service = TeamOrchestrationService()
+
+    async def _fake_llm(message: str, current_team: dict):
+        assert "法务" in message
+        return {
+            "team_goal": "完成合同合规审查",
+            "task_scope": "仅覆盖合同条款审查",
+            "multi_agent_mode": "deep_agents",
+            "subagents": [
+                {
+                    "name": "legal_reviewer",
+                    "description": "审查合同风险",
+                    "system_prompt": "你负责合同条款审查。",
+                    "depends_on": [],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(service, "_build_builtin_team_patch", lambda *_: {})
+    monkeypatch.setattr(service, "_generate_team_patch_with_llm", _fake_llm)
+
+    result = asyncio.run(service.wizard_step_with_ai("帮我组建一个法务审查团队"))
+
+    assert result["is_complete"] is True
+    assert result["draft"]["subagents"][0]["name"] == "legal_reviewer"
+
+
 def test_validate_team_detects_dependency_cycle():
     service = TeamOrchestrationService()
     team = _sample_team("supervisor")

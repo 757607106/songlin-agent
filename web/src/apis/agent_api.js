@@ -170,8 +170,12 @@ export const agentApi = {
   /**
    * 团队创建向导：根据自然语言输入增量构建团队草稿
    */
-  teamWizardStep: (agentId, message, draft = null) =>
-    apiPost(`/api/chat/agent/${agentId}/team/wizard`, { message, draft }),
+  teamWizardStep: (agentId, message, draft = null, autoComplete = true) =>
+    apiPost(`/api/chat/agent/${agentId}/team/wizard`, {
+      message,
+      draft,
+      auto_complete: autoComplete
+    }),
 
   /**
    * 校验团队定义（职责边界/依赖/通信）
@@ -183,6 +187,12 @@ export const agentApi = {
    * 将团队定义落库为 Agent 配置
    */
   createTeamProfile: (agentId, payload) => apiAdminPost(`/api/chat/agent/${agentId}/team/create`, payload),
+
+  /**
+   * 一句话自动组建并保存团队配置
+   */
+  autoCreateTeamProfile: (agentId, payload) =>
+    apiAdminPost(`/api/chat/agent/${agentId}/team/auto-create`, payload),
 
   /**
    * 通过 MCP langchain-docs 查询官方文档

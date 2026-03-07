@@ -60,7 +60,7 @@ class ToolResolver:
                 kb_tools = await get_kb_based_tools(db_names=knowledges)
                 resolved.extend(kb_tools)
             except Exception as e:
-                logger.error(f"ToolResolver: failed to load KB tools: {e}")
+                logger.warning(f"ToolResolver: failed to load KB tools, skipped: {e}")
 
         # 3. Tavily search
         tavily = get_tavily_search()
@@ -69,12 +69,12 @@ class ToolResolver:
 
         # 4. MCP tools
         if mcps:
-            try:
-                for server_name in mcps:
+            for server_name in mcps:
+                try:
                     mcp_tools = await get_enabled_mcp_tools(server_name)
                     resolved.extend(mcp_tools)
-            except Exception as e:
-                logger.error(f"ToolResolver: failed to load MCP tools: {e}")
+                except Exception as e:
+                    logger.warning(f"ToolResolver: failed to load MCP tools from `{server_name}`, skipped: {e}")
 
         return resolved
 

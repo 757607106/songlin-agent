@@ -59,6 +59,25 @@ _DEFAULT_MCP_SERVERS = {
     },
 }
 
+
+def _collect_leaf_exceptions(error: BaseException) -> list[BaseException]:
+    if hasattr(error, "exceptions"):
+        leaves: list[BaseException] = []
+        for item in getattr(error, "exceptions", []) or []:
+            if isinstance(item, BaseException):
+                leaves.extend(_collect_leaf_exceptions(item))
+        return leaves
+    return [error]
+
+
+def _exception_summary(error: BaseException) -> str:
+    leaves = _collect_leaf_exceptions(error)
+    parts = [f"{type(item).__name__}: {item}" for item in leaves if str(item)]
+    if not parts:
+        parts = [repr(error)]
+    return " | ".join(parts[:6])
+
+
 # =============================================================================
 # === 核心逻辑（从 agents/common/mcp.py 移动） ===
 # =============================================================================
@@ -324,8 +343,8 @@ async def get_mcp_tools(
                 if client is None:
                     return []
 
-            # 获取所有工具（原始）
-            raw_tools = cast(list[Any], await client.get_tools())
+            # 只拉取目标 server 的工具，避免某个异常 server 连带影响其它 server
+            raw_tools = cast(list[Any], await client.get_tools(server_name=server_name))
 
             # 为所有工具生成 ID
             server_cc = to_camel_case(server_name)
@@ -365,7 +384,8 @@ async def get_mcp_tools(
             return []
         except Exception as e:
             logger.error(
-                f"Failed to load tools from MCP server '{server_name}': {e}, traceback: {traceback.format_exc()}"
+                f"Failed to load tools from MCP server '{server_name}': "
+                f"{_exception_summary(e)}, traceback: {traceback.format_exc()}"
             )
             return []
 
@@ -383,10 +403,20 @@ async def get_mcp_tools(
 
 async def get_tools_from_all_servers() -> list[Callable[..., Any]]:
     """获取所有已配置 MCP 服务器的所有工具。"""
-    all_tools = []
-    for server_name in MCP_SERVERS.keys():
-        tools = await get_mcp_tools(server_name)
-        all_tools.extend(tools)
+    server_names = list(MCP_SERVERS.keys())
+    if not server_names:
+        return []
+
+    all_tools: list[Callable[..., Any]] = []
+    results = await asyncio.gather(
+        *(get_mcp_tools(server_name) for server_name in server_names),
+        return_exceptions=True,
+    )
+    for server_name, result in zip(server_names, results, strict=False):
+        if isinstance(result, Exception):
+            logger.warning(f"Failed to gather MCP tools from '{server_name}': {result}")
+            continue
+        all_tools.extend(result)
     return all_tools
 
 

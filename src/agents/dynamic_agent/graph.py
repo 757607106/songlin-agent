@@ -8,6 +8,8 @@ Supports three collaboration modes via frontend configuration:
 
 from __future__ import annotations
 
+import asyncio
+
 from src.agents.common import BaseAgent
 from src.utils import logger
 
@@ -42,6 +44,7 @@ class DynamicAgent(BaseAgent):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._graph_cache: dict[str, object] = {}
+        self._graph_build_locks: dict[str, asyncio.Lock] = {}
         self._factory = DynamicAgentFactory()
 
     def _build_context(self, input_context: dict | None = None) -> DynamicAgentContext:
@@ -208,16 +211,22 @@ class DynamicAgent(BaseAgent):
         if cached is not None:
             return cached
 
-        # Build the graph via factory
-        graph = await self._factory.build_graph(
-            context,
-            checkpointer=await self._get_checkpointer(),
-            store=await self._get_store(),
-        )
+        lock = self._graph_build_locks.setdefault(cache_key, asyncio.Lock())
+        async with lock:
+            cached = self._graph_cache.get(cache_key)
+            if cached is not None:
+                return cached
 
-        self._graph_cache[cache_key] = graph
-        logger.info(
-            f"DynamicAgent graph built: mode={context.multi_agent_mode}, "
-            f"subagents={len(context.subagents)}, cache_key={cache_key[:8]}..."
-        )
-        return graph
+            # Build the graph via factory
+            graph = await self._factory.build_graph(
+                context,
+                checkpointer=await self._get_checkpointer(),
+                store=await self._get_store(),
+            )
+
+            self._graph_cache[cache_key] = graph
+            logger.info(
+                f"DynamicAgent graph built: mode={context.multi_agent_mode}, "
+                f"subagents={len(context.subagents)}, cache_key={cache_key[:8]}..."
+            )
+            return graph

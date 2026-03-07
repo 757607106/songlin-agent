@@ -1,10 +1,12 @@
 # 多 Agent 团队编排
 
 `DynamicAgent` 现支持基于对话的团队创建、职责边界校验和三模式协作执行（`disabled / supervisor / deep_agents`）。
+最新版本支持「一句话自动组队」与「一键落库创建配置」。
 
 ## 核心能力
 
 - 对话式团队创建（自然语言增量补全）
+- 一句话自动组队（AI 自动补全团队目标、角色分工、依赖关系）
 - 职责重叠检测与依赖拓扑校验
 - 循环调用检测与重试上限保护
 - 通信矩阵强约束（越界路由自动拦截）
@@ -16,21 +18,23 @@
 - `POST /api/chat/agent/DynamicAgent/team/wizard`
 - `POST /api/chat/agent/DynamicAgent/team/validate`
 - `POST /api/chat/agent/DynamicAgent/team/create`
+- `POST /api/chat/agent/DynamicAgent/team/auto-create`
 - `POST /api/chat/agent/DynamicAgent/team/langchain-docs`
 - `POST /api/chat/agent/DynamicAgent/team/benchmark`
 
 ## 推荐流程
 
-1. 先用 `team/wizard` 补全草稿
-2. 用 `team/validate` 修正职责和依赖问题
-3. 用 `team/create` 落库成配置并设为默认
-4. 正式发起对话任务
+1. 直接调用 `team/auto-create`，一句话完成组队并保存
+2. 或先用 `team/wizard` 补全草稿
+3. 用 `team/validate` 修正职责和依赖问题
+4. 用 `team/create` 落库成配置并设为默认
+5. 正式发起对话任务
 
 ## 模式选择
 
 - `disabled`: 简单任务，单智能体即可
 - `supervisor`: 需要强治理与可观测过程
-- `deep_agents`: 任务可并行，关注吞吐效率
+- `deep_agents`: 任务可并行，关注吞吐效率（默认强调 `write_todos + task + filesystem`）
 
 ## 参考文档
 

@@ -11,11 +11,14 @@ from __future__ import annotations
 from typing import Any
 
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 from langgraph.graph.state import CompiledStateGraph
 
 from src.agents.common import load_chat_model
-from src.agents.common.middlewares import RuntimeConfigMiddleware, save_attachments_to_fs
+from src.agents.common.deepagent_runtime import (
+    create_main_middlewares,
+    create_state_store_backend,
+    create_subagent_middlewares,
+)
 from src.agents.common.subagents.registry import ToolResolver
 from src.services.mcp_service import get_tools_from_all_servers
 from src.services.team_orchestration_service import team_orchestration_service
@@ -23,17 +26,6 @@ from src.utils import logger
 
 from .context import DynamicAgentContext
 from .supervisor import build_supervisor_graph
-
-
-def _create_composite_backend(rt: Any) -> CompositeBackend:
-    """Create a composite backend with state and store routes."""
-    return CompositeBackend(
-        default=StateBackend(rt),
-        routes={
-            "/memories/": StoreBackend(rt),
-            "/preferences/": StoreBackend(rt),
-        },
-    )
 
 
 class DynamicAgentFactory:
@@ -128,11 +120,8 @@ class DynamicAgentFactory:
             model=model,
             tools=tools,
             system_prompt=context.system_prompt,
-            backend=_create_composite_backend,
-            middleware=[
-                RuntimeConfigMiddleware(extra_tools=all_mcp_tools),
-                save_attachments_to_fs,
-            ],
+            backend=create_state_store_backend,
+            middleware=create_main_middlewares(model=model, mcp_tools=all_mcp_tools),
             checkpointer=checkpointer,
             store=store,
             name="dynamic_single_agent",
@@ -174,14 +163,7 @@ class DynamicAgentFactory:
                 "system_prompt": sa_config.get("system_prompt", ""),
                 "tools": sa_tools,
                 "model": sa_model,
-                "middleware": [
-                    RuntimeConfigMiddleware(
-                        extra_tools=all_mcp_tools,
-                        enable_model_override=False,
-                        enable_system_prompt_override=False,
-                        enable_tools_override=True,
-                    ),
-                ],
+                "middleware": create_subagent_middlewares(model=sa_model, mcp_tools=all_mcp_tools),
             }
             subagent_dicts.append(subagent_dict)
 
@@ -201,11 +183,8 @@ class DynamicAgentFactory:
             tools=main_tools,
             system_prompt=f"{context.system_prompt}{deep_mode_hint}",
             subagents=subagent_dicts,
-            backend=_create_composite_backend,
-            middleware=[
-                RuntimeConfigMiddleware(extra_tools=all_mcp_tools),
-                save_attachments_to_fs,
-            ],
+            backend=create_state_store_backend,
+            middleware=create_main_middlewares(model=model, mcp_tools=all_mcp_tools),
             checkpointer=checkpointer,
             store=store,
             name="dynamic_deep_agents",

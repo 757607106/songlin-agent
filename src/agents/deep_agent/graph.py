@@ -1,24 +1,17 @@
 """Deep Agent - 基于create_deep_agent的深度分析智能体"""
 
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 
 from src.agents.common import BaseAgent, load_chat_model
-from src.agents.common.middlewares import RuntimeConfigMiddleware, save_attachments_to_fs
+from src.agents.common.deepagent_runtime import (
+    create_main_middlewares,
+    create_state_store_backend,
+    create_subagent_middlewares,
+)
 from src.agents.common.tools import get_tavily_search
 from src.services.mcp_service import get_tools_from_all_servers
 
 from .context import DeepContext
-
-
-def _create_composite_backend(rt):
-    return CompositeBackend(
-        default=StateBackend(rt),
-        routes={
-            "/memories/": StoreBackend(rt),
-            "/preferences/": StoreBackend(rt),
-        },
-    )
 
 
 def _get_research_sub_agent(search_tools: list) -> dict:
@@ -89,24 +82,10 @@ class DeepAgent(BaseAgent):
 
         research_sub_agent = _get_research_sub_agent(search_tools)
         research_sub_agent["model"] = model
-        research_sub_agent["middleware"] = [
-            RuntimeConfigMiddleware(
-                extra_tools=all_mcp_tools,
-                enable_model_override=False,
-                enable_system_prompt_override=False,
-                enable_tools_override=True,
-            )
-        ]
+        research_sub_agent["middleware"] = create_subagent_middlewares(model=model, mcp_tools=all_mcp_tools)
         critique_sub_agent = _get_critique_sub_agent(search_tools)
         critique_sub_agent["model"] = model
-        critique_sub_agent["middleware"] = [
-            RuntimeConfigMiddleware(
-                extra_tools=all_mcp_tools,
-                enable_model_override=False,
-                enable_system_prompt_override=False,
-                enable_tools_override=True,
-            )
-        ]
+        critique_sub_agent["middleware"] = create_subagent_middlewares(model=model, mcp_tools=all_mcp_tools)
 
         # 关键说明：这里改为官方 create_deep_agent 入口，子agent通过 subagents 参数注册。
         # 这样与 reporter 的 deep-agent 化方案一致，维护成本更低。
@@ -115,11 +94,8 @@ class DeepAgent(BaseAgent):
             tools=search_tools,
             system_prompt=context.system_prompt,
             subagents=[critique_sub_agent, research_sub_agent],
-            backend=_create_composite_backend,
-            middleware=[
-                RuntimeConfigMiddleware(extra_tools=all_mcp_tools),
-                save_attachments_to_fs,
-            ],
+            backend=create_state_store_backend,
+            middleware=create_main_middlewares(model=model, mcp_tools=all_mcp_tools),
             checkpointer=await self._get_checkpointer(),
             store=await self._get_store(),
             name="deep_research_agent",

@@ -252,8 +252,8 @@ class BaseAgent:
         module_name = "langgraph.checkpoint.postgres.aio"
         try:
             module = importlib.import_module(module_name)
-        except Exception:
-            raise RuntimeError(f"未安装 {module_name}，请安装 langgraph-checkpoint-postgres") from None
+        except Exception as e:
+            raise RuntimeError(f"{module_name} 导入失败: {e}") from None
 
         saver_cls = getattr(module, "AsyncPostgresSaver", None)
         if saver_cls is None:
@@ -286,11 +286,11 @@ class BaseAgent:
     async def _get_postgres_store(self):
         postgres_url = self._resolve_postgres_url()
 
-        module_name = "langgraph.store.postgres"
+        module_name = "langgraph.store.postgres.aio"
         try:
             module = importlib.import_module(module_name)
-        except Exception:
-            raise RuntimeError(f"未安装 {module_name}") from None
+        except Exception as e:
+            raise RuntimeError(f"{module_name} 导入失败: {e}") from None
 
         store_cls = getattr(module, "AsyncPostgresStore", None)
         if store_cls is None:

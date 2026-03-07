@@ -18,14 +18,13 @@ from datetime import datetime
 from typing import Annotated, Any, TypedDict
 
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph, add_messages
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
-from src.agents.common.middlewares import RuntimeConfigMiddleware
+from src.agents.common.deepagent_runtime import create_state_store_backend, create_subagent_middlewares
 from src.utils import logger
 
 # --- Default Supervisor System Prompt ---
@@ -62,17 +61,6 @@ class SupervisorState(TypedDict, total=False):
     retry_counts: dict[str, int]
     active_agent: str | None
     execution_log: list[dict[str, Any]]
-
-
-def _create_composite_backend(rt: Any) -> CompositeBackend:
-    """Create a composite backend with state and store routes."""
-    return CompositeBackend(
-        default=StateBackend(rt),
-        routes={
-            "/memories/": StoreBackend(rt),
-            "/preferences/": StoreBackend(rt),
-        },
-    )
 
 
 def _now_iso() -> str:
@@ -132,15 +120,8 @@ async def build_supervisor_graph(
             model=sa_config.get("model") or model,
             tools=sa_tools,
             system_prompt=sa_config.get("system_prompt", ""),
-            backend=_create_composite_backend,
-            middleware=[
-                RuntimeConfigMiddleware(
-                    extra_tools=mcp_tools or [],
-                    enable_model_override=False,
-                    enable_system_prompt_override=False,
-                    enable_tools_override=True,
-                ),
-            ],
+            backend=create_state_store_backend,
+            middleware=create_subagent_middlewares(model=sa_config.get("model") or model, mcp_tools=mcp_tools or []),
             name=name,
         )
         subagent_graphs[name] = sa_graph
