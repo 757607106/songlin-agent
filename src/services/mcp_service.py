@@ -36,6 +36,10 @@ _mcp_tools_stats: dict[str, dict[str, int]] = {}
 # MCP 服务器配置（运行时缓存，从数据库加载）
 MCP_SERVERS: dict[str, dict[str, Any]] = {}
 
+# 全局共享 MCP 客户端实例（避免重复初始化）
+_mcp_client: MultiServerMCPClient | None = None
+_mcp_client_config_hash: str | None = None  # 用于检测配置变更
+
 # 默认 MCP 服务器配置（首次运行时导入数据库）
 _DEFAULT_MCP_SERVERS = {
     "sequentialthinking": {
@@ -173,6 +177,9 @@ async def init_mcp_servers() -> None:
         # 从数据库加载配置到缓存
         await load_mcp_servers_from_db()
 
+        # 初始化共享 MCP 客户端
+        await _init_shared_mcp_client()
+
     except Exception as e:
         logger.error(f"Failed to initialize MCP servers: {e}, traceback: {traceback.format_exc()}")
 
@@ -188,6 +195,74 @@ async def get_mcp_client(
     except Exception as e:
         logger.error("Failed to initialize MCP client: {}", e)
         return None
+
+
+def _compute_config_hash() -> str:
+    """计算当前 MCP 配置的哈希值，用于检测配置变更。"""
+    import hashlib
+    import json
+
+    config_str = json.dumps(MCP_SERVERS, sort_keys=True, default=str)
+    return hashlib.md5(config_str.encode()).hexdigest()
+
+
+async def _init_shared_mcp_client() -> None:
+    """初始化或重建共享 MCP 客户端。
+
+    官方文档推荐：创建一次 MultiServerMCPClient，复用多次。
+    https://github.com/langchain-ai/langchain-mcp-adapters
+    """
+    global _mcp_client, _mcp_client_config_hash
+
+    if not MCP_SERVERS:
+        logger.info("No MCP servers configured, skipping client initialization")
+        return
+
+    new_hash = _compute_config_hash()
+
+    # 如果配置未变更且客户端已存在，跳过
+    if _mcp_client is not None and _mcp_client_config_hash == new_hash:
+        logger.debug("MCP client already initialized with current config")
+        return
+
+    # 构建客户端配置（排除 disabled_tools 等非连接参数）
+    client_configs = {}
+    for name, config in MCP_SERVERS.items():
+        client_configs[name] = {k: v for k, v in config.items() if k not in ("disabled_tools",)}
+
+    try:
+        _mcp_client = MultiServerMCPClient(client_configs)
+        _mcp_client_config_hash = new_hash
+        logger.info(f"✅ Initialized shared MCP client with {len(client_configs)} servers")
+    except Exception as e:
+        logger.error(f"Failed to initialize shared MCP client: {e}")
+        _mcp_client = None
+        _mcp_client_config_hash = None
+
+
+async def get_shared_mcp_client() -> MultiServerMCPClient | None:
+    """获取共享 MCP 客户端实例。
+
+    如果配置已变更，会自动重建客户端。
+    """
+    global _mcp_client, _mcp_client_config_hash
+
+    if not MCP_SERVERS:
+        return None
+
+    new_hash = _compute_config_hash()
+    if _mcp_client is None or _mcp_client_config_hash != new_hash:
+        await _init_shared_mcp_client()
+
+    return _mcp_client
+
+
+async def close_shared_mcp_client() -> None:
+    """关闭共享 MCP 客户端（应用关闭时调用）。"""
+    global _mcp_client, _mcp_client_config_hash
+    _mcp_client = None
+    _mcp_client_config_hash = None
+    logger.info("Closed shared MCP client")
 
 
 def to_camel_case(s: str) -> str:
@@ -239,13 +314,15 @@ async def get_mcp_tools(
         try:
             assert server_name in mcp_servers, f"Server {server_name} not found in ({list(mcp_servers.keys())})"
 
-            # 提取连接配置
-            server_config = mcp_servers[server_name]
-            client_config = {k: v for k, v in server_config.items() if k not in ("disabled_tools",)}
-
-            client = await get_mcp_client({server_name: client_config})
+            # 使用共享客户端（官方推荐：复用而非重建）
+            client = await get_shared_mcp_client()
             if client is None:
-                return []
+                # 回退：如果共享客户端不可用，创建临时客户端
+                server_config = mcp_servers[server_name]
+                client_config = {k: v for k, v in server_config.items() if k not in ("disabled_tools",)}
+                client = await get_mcp_client({server_name: client_config})
+                if client is None:
+                    return []
 
             # 获取所有工具（原始）
             raw_tools = cast(list[Any], await client.get_tools())

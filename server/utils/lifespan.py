@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from src.services.task_service import tasker
-from src.services.mcp_service import init_mcp_servers
+from src.services.mcp_service import init_mcp_servers, close_shared_mcp_client
 from src.storage.postgres.manager import pg_manager
 from src.storage.postgres.checkpointer import checkpointer_manager
 from src.storage.redis.client import redis_manager
@@ -53,6 +53,7 @@ async def lifespan(app: FastAPI):
     await tasker.start()
     yield
     await tasker.shutdown()
+    await close_shared_mcp_client()
     await redis_manager.close()
     await checkpointer_manager.close()
     await pg_manager.close()

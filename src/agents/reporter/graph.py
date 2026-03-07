@@ -164,12 +164,17 @@ class SqlReporterAgent(BaseAgent):
             "recursion_limit": 300,
         }
 
-        async for msg, metadata in graph.astream(
+        async for event in graph.astream(
             {"messages": messages},
             stream_mode="messages",
             context=context,  # type: ignore[arg-type]
             config=input_config,
         ):
+            # 安全解包：兼容不同 LangGraph 版本的返回格式
+            if isinstance(event, tuple) and len(event) >= 2:
+                msg, metadata = event[0], event[1]
+            else:
+                msg, metadata = event, {}
             yield msg, metadata
 
     async def invoke_messages(self, messages: list[str], input_context=None, **kwargs):
