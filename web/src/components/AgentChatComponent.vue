@@ -287,6 +287,9 @@ const localUIState = reactive({
   isInitialRender: true
 })
 let threadStatusSyncTimer = null
+let lastThreadListFetchAt = 0
+const THREAD_SYNC_ACTIVE_INTERVAL_MS = 3000
+const THREAD_SYNC_IDLE_INTERVAL_MS = 10000
 
 // Mention resources
 const availableKnowledgeBases = ref([])
@@ -1256,8 +1259,20 @@ onMounted(async () => {
   if (threadStatusSyncTimer) {
     clearInterval(threadStatusSyncTimer)
   }
+  const isThreadRuntimeActive = (thread) => {
+    const runtimeStatus =
+      thread?.runtime_status || thread?.extra_metadata?.runtime_status || thread?.metadata?.runtime_status
+    return runtimeStatus === 'running' || runtimeStatus === 'waiting_for_human'
+  }
   threadStatusSyncTimer = setInterval(() => {
     if (!currentAgentId.value || chatUIStore.isLoadingThreads) return
+    const now = Date.now()
+    const hasActiveRuntime = isProcessing.value || threads.value.some((thread) => isThreadRuntimeActive(thread))
+    const minInterval = hasActiveRuntime
+      ? THREAD_SYNC_ACTIVE_INTERVAL_MS
+      : THREAD_SYNC_IDLE_INTERVAL_MS
+    if (now - lastThreadListFetchAt < minInterval) return
+    lastThreadListFetchAt = now
     void fetchThreads(currentAgentId.value).catch(() => {})
   }, 3000)
 })

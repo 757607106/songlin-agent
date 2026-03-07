@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -59,6 +60,9 @@ class RuntimeConfigMiddleware(AgentMiddleware):
         self.enable_model_override = enable_model_override
         self.enable_system_prompt_override = enable_system_prompt_override
         self.enable_tools_override = enable_tools_override
+        self._model_cache: dict[str, Any] = {}
+        self._tool_selection_cache: dict[tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]], tuple[float, list]] = {}
+        self._tool_selection_cache_ttl_seconds = 5.0
 
         self.tools: list[Any] = []
         # 预加载工具列表（仅当启用工具覆盖时）
@@ -86,8 +90,21 @@ class RuntimeConfigMiddleware(AgentMiddleware):
 
         # 1. 模型覆盖（可选）
         if self.enable_model_override:
-            model = load_chat_model(getattr(runtime_context, self.model_context_name, None))
-            overrides["model"] = model
+            model_spec = getattr(runtime_context, self.model_context_name, None)
+            if model_spec is not None:
+                if isinstance(model_spec, str):
+                    model = self._model_cache.get(model_spec)
+                    if model is None:
+                        started_at = time.perf_counter()
+                        model = load_chat_model(model_spec)
+                        self._model_cache[model_spec] = model
+                        elapsed_ms = (time.perf_counter() - started_at) * 1000
+                        logger.info(
+                            f"RuntimeConfigMiddleware initialized model '{model_spec}' in {elapsed_ms:.1f}ms"
+                        )
+                else:
+                    model = model_spec
+                overrides["model"] = model
 
         # 2. 工具覆盖（可选）
         if self.enable_tools_override:
@@ -125,27 +142,47 @@ class RuntimeConfigMiddleware(AgentMiddleware):
 
     async def get_tools_from_context(self, context) -> list:
         """从上下文配置中获取工具列表"""
+        now_ts = time.perf_counter()
+        context_tools = getattr(context, self.tools_context_name, None) or []
+        context_knowledges = getattr(context, self.knowledges_context_name, None) or []
+        context_mcps = getattr(context, self.mcps_context_name, None) or []
+
+        cache_key = (
+            tuple(str(t) for t in context_tools if t),
+            tuple(str(kb) for kb in context_knowledges if kb),
+            tuple(str(mcp) for mcp in context_mcps if mcp),
+        )
+        cached = self._tool_selection_cache.get(cache_key)
+        if cached is not None:
+            cached_at, cached_tools = cached
+            if now_ts - cached_at <= self._tool_selection_cache_ttl_seconds:
+                return list(cached_tools)
+
         selected_tools = []
 
         # 1. 基础工具 (从 context.tools 中筛选)
-        tools = getattr(context, self.tools_context_name, None)
-        if tools:
+        tools = context_tools
+        if tools and isinstance(tools, list):
             tools_map = {t.name: t for t in self.tools}
             for tool_name in tools:
                 if tool_name in tools_map:
                     selected_tools.append(tools_map[tool_name])
 
         # 2. 知识库工具
-        knowledges = getattr(context, self.knowledges_context_name, None)
-        if knowledges:
+        knowledges = context_knowledges
+        if knowledges and isinstance(knowledges, list):
             kb_tools = get_kb_based_tools(db_names=knowledges)
             selected_tools.extend(kb_tools)
 
         # 3. MCP 工具（使用统一入口，自动过滤 disabled_tools）
-        mcps = getattr(context, self.mcps_context_name, None)
-        if mcps:
+        mcps = context_mcps
+        if mcps and isinstance(mcps, list):
             for server_name in mcps:
                 mcp_tools = await get_enabled_mcp_tools(server_name)
                 selected_tools.extend(mcp_tools)
+
+        if len(self._tool_selection_cache) > 256:
+            self._tool_selection_cache.clear()
+        self._tool_selection_cache[cache_key] = (now_ts, list(selected_tools))
 
         return selected_tools

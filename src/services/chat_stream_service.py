@@ -5,6 +5,7 @@ import json
 import os
 import traceback
 import uuid
+from copy import deepcopy
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from datetime import datetime
@@ -32,6 +33,17 @@ _thread_stream_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 THREAD_DISTRIBUTED_LOCK_ENABLED = os.getenv("THREAD_DISTRIBUTED_LOCK_ENABLED", "1") == "1"
 THREAD_DISTRIBUTED_LOCK_NAMESPACE = os.getenv("THREAD_DISTRIBUTED_LOCK_NAMESPACE", "thread_stream")
 AGENT_STREAM_NEXT_TIMEOUT_SECONDS = max(5, int(os.getenv("AGENT_STREAM_NEXT_TIMEOUT_SECONDS", "180")))
+AGENT_STATE_VIEW_CACHE_TTL_SECONDS = max(0.2, float(os.getenv("AGENT_STATE_VIEW_CACHE_TTL_SECONDS", "1.5")))
+_agent_state_view_cache: dict[tuple[str, str, str], tuple[float, dict]] = {}
+_agent_state_view_inflight: dict[tuple[str, str, str], asyncio.Task] = {}
+_agent_state_view_lock: asyncio.Lock | None = None
+
+
+def _get_agent_state_view_lock() -> asyncio.Lock:
+    global _agent_state_view_lock
+    if _agent_state_view_lock is None:
+        _agent_state_view_lock = asyncio.Lock()
+    return _agent_state_view_lock
 
 
 async def _iterate_with_next_timeout(stream_source, timeout_seconds: int):
@@ -637,11 +649,43 @@ async def stream_agent_chat(
         accumulated_content = []
         tool_state_event_count = 0
         last_tool_state_emit_at = 0.0
+        pending_agent_state_task: asyncio.Task | None = None
         current_subagent = None  # 跟踪当前执行的子 Agent
+
+        async def _load_agent_state_snapshot() -> dict:
+            nonlocal state_graph
+            started_at = asyncio.get_event_loop().time()
+            if state_graph is None:
+                if dynamic_graph_kwargs is not None:
+                    state_graph = await agent.get_graph(**dynamic_graph_kwargs)
+                else:
+                    state_graph = await agent.get_graph()
+            state = await state_graph.aget_state(langgraph_config)
+            elapsed_ms = (asyncio.get_event_loop().time() - started_at) * 1000
+            logger.debug(f"stream_agent_chat: refreshed agent_state snapshot in {elapsed_ms:.1f}ms")
+            return extract_agent_state(getattr(state, "values", {}), include_attachment_content=False) if state else {}
+
+        async def _emit_pending_agent_state():
+            nonlocal pending_agent_state_task
+            if pending_agent_state_task is None or not pending_agent_state_task.done():
+                return
+            task = pending_agent_state_task
+            pending_agent_state_task = None
+            try:
+                agent_state = task.result()
+            except Exception as e:
+                logger.debug(f"Skipped agent_state emit due to state refresh error: {e}")
+                return
+            if agent_state:
+                yield make_chunk(status="agent_state", agent_state=agent_state, meta=meta)
+
         async for msg, metadata in _iterate_with_next_timeout(
             agent.stream_messages(messages, input_context=input_context),
             AGENT_STREAM_NEXT_TIMEOUT_SECONDS,
         ):
+            async for state_chunk in _emit_pending_agent_state():
+                yield state_chunk
+
             # 检查是 updates 模式还是 messages 模式
             if isinstance(metadata, dict) and metadata.get("mode") == "updates":
                 # 这是状态更新事件（包含子 Agent 步骤信息）
@@ -710,24 +754,20 @@ async def stream_agent_chat(
                         if not should_emit_state:
                             continue
                         last_tool_state_emit_at = now_ts
-                        if state_graph is None:
-                            if dynamic_graph_kwargs is not None:
-                                state_graph = await agent.get_graph(**dynamic_graph_kwargs)
-                            else:
-                                state_graph = await agent.get_graph()
-                        state = await state_graph.aget_state(langgraph_config)
-                        agent_state = (
-                            extract_agent_state(getattr(state, "values", {}), include_attachment_content=False)
-                            if state
-                            else {}
-                        )
-                        if agent_state:
-                            yield make_chunk(status="agent_state", agent_state=agent_state, meta=meta)
+                        if pending_agent_state_task is None or pending_agent_state_task.done():
+                            pending_agent_state_task = asyncio.create_task(_load_agent_state_snapshot())
                 except Exception as e:
                     logger.error(f"Error processing tool message: {e}")
 
         if not full_msg and accumulated_content:
             full_msg = AIMessage(content="".join(accumulated_content))
+
+        async for state_chunk in _emit_pending_agent_state():
+            yield state_chunk
+        if pending_agent_state_task is not None and not pending_agent_state_task.done():
+            pending_agent_state_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pending_agent_state_task
 
         if conf.enable_content_guard and hasattr(full_msg, "content") and await content_guard.check(full_msg.content):
             await save_partial_message(conv_repo, thread_id, full_msg, "content_guard_blocked")
@@ -834,6 +874,11 @@ async def stream_agent_chat(
 
         yield make_chunk(status="error", error_type=error_type, error_message=error_msg, meta=meta)
     finally:
+        pending_agent_state_task = locals().get("pending_agent_state_task")
+        if pending_agent_state_task is not None and not pending_agent_state_task.done():
+            pending_agent_state_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pending_agent_state_task
         await _release_distributed_thread_lock(distributed_lock_session, thread_id)
         if thread_lock.locked():
             thread_lock.release()
@@ -1029,6 +1074,54 @@ async def get_agent_state_view(
     current_user_id: str,
     db,
 ) -> dict:
+    cache_key = (agent_id, thread_id, str(current_user_id))
+    now_ts = asyncio.get_event_loop().time()
+    cache_lock = _get_agent_state_view_lock()
+
+    async with cache_lock:
+        cached = _agent_state_view_cache.get(cache_key)
+        if cached is not None:
+            expires_at, payload = cached
+            if now_ts <= expires_at:
+                return deepcopy(payload)
+
+        inflight = _agent_state_view_inflight.get(cache_key)
+        if inflight is None or inflight.done():
+            inflight = asyncio.create_task(
+                _compute_agent_state_view(
+                    agent_id=agent_id,
+                    thread_id=thread_id,
+                    current_user_id=current_user_id,
+                    db=db,
+                )
+            )
+            _agent_state_view_inflight[cache_key] = inflight
+
+    try:
+        payload = await inflight
+    except Exception:
+        async with cache_lock:
+            if _agent_state_view_inflight.get(cache_key) is inflight:
+                _agent_state_view_inflight.pop(cache_key, None)
+        raise
+
+    async with cache_lock:
+        _agent_state_view_cache[cache_key] = (asyncio.get_event_loop().time() + AGENT_STATE_VIEW_CACHE_TTL_SECONDS, payload)
+        if _agent_state_view_inflight.get(cache_key) is inflight:
+            _agent_state_view_inflight.pop(cache_key, None)
+        if len(_agent_state_view_cache) > 2048:
+            _agent_state_view_cache.clear()
+
+    return deepcopy(payload)
+
+
+async def _compute_agent_state_view(
+    *,
+    agent_id: str,
+    thread_id: str,
+    current_user_id: str,
+    db,
+) -> dict:
     if not agent_manager.get_agent(agent_id):
         from fastapi import HTTPException
 
@@ -1067,7 +1160,10 @@ async def get_agent_state_view(
     if graph is None:
         graph = await agent.get_graph()
     langgraph_config = {"configurable": {"user_id": str(current_user_id), "thread_id": thread_id}}
+    state_fetch_started_at = asyncio.get_event_loop().time()
     state = await graph.aget_state(langgraph_config)
+    state_fetch_ms = (asyncio.get_event_loop().time() - state_fetch_started_at) * 1000
+    logger.info(f"[get_agent_state_view] fetched graph state in {state_fetch_ms:.1f}ms for thread {thread_id}")
     agent_state = extract_agent_state(getattr(state, "values", {})) if state else {}
 
     # 如果 state 中没有 files，从附件构建

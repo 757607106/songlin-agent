@@ -9,6 +9,7 @@ Supports three collaboration modes via frontend configuration:
 from __future__ import annotations
 
 import asyncio
+import time
 
 from src.agents.common import BaseAgent
 from src.utils import logger
@@ -218,15 +219,17 @@ class DynamicAgent(BaseAgent):
                 return cached
 
             # Build the graph via factory
+            started_at = time.perf_counter()
             graph = await self._factory.build_graph(
                 context,
                 checkpointer=await self._get_checkpointer(),
                 store=await self._get_store(),
             )
+            build_ms = (time.perf_counter() - started_at) * 1000
 
             self._graph_cache[cache_key] = graph
             logger.info(
                 f"DynamicAgent graph built: mode={context.multi_agent_mode}, "
-                f"subagents={len(context.subagents)}, cache_key={cache_key[:8]}..."
+                f"subagents={len(context.subagents)}, cache_key={cache_key[:8]}..., build_ms={build_ms:.1f}"
             )
             return graph
