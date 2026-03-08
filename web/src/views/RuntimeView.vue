@@ -4,12 +4,21 @@ import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 import { useRuntimeStore } from '@/stores/runtime'
 import { formatFullDateTime, formatRelative } from '@/utils/time'
+import HeaderComponent from '@/components/HeaderComponent.vue'
 
 const runtimeStore = useRuntimeStore()
 const route = useRoute()
 const router = useRouter()
-const { sortedRuns, selectedRun, runEvents, loadingRuns, loadingEvents, filters, eventFilters, eventTypeCatalog } =
-  storeToRefs(runtimeStore)
+const {
+  sortedRuns,
+  selectedRun,
+  runEvents,
+  loadingRuns,
+  loadingEvents,
+  filters,
+  eventFilters,
+  eventTypeCatalog
+} = storeToRefs(runtimeStore)
 const routeRunId = computed(() => {
   const fromParams = String(route.params.runId || '').trim()
   if (fromParams) return fromParams
@@ -18,6 +27,7 @@ const routeRunId = computed(() => {
 
 const selectedRunId = computed(() => selectedRun.value?.run_id || '')
 const runKeyword = ref('')
+const expandedEvents = ref(new Set())
 const statusOptions = [
   { label: '全部状态', value: undefined },
   { label: '排队', value: 'queued' },
@@ -72,10 +82,10 @@ const runMeta = computed(() => {
   if (!selectedRun.value) return []
   const run = selectedRun.value
   return [
-    { label: 'Run ID', value: run.run_id || '-' },
-    { label: 'Thread ID', value: run.thread_id || '-' },
-    { label: '请求 ID', value: run.request_id || '-' },
-    { label: '当前状态', value: run.status || '-' },
+    { label: 'Run ID', value: run.run_id || '-', mono: true },
+    { label: 'Thread ID', value: run.thread_id || '-', mono: true },
+    { label: '请求 ID', value: run.request_id || '-', mono: true },
+    { label: '当前状态', value: run.status || '-', isStatus: true },
     { label: '执行模式', value: run.mode || '-' },
     { label: '尝试次数', value: `${run.attempt ?? 0} / ${run.max_attempts ?? 1}` },
     { label: '创建时间', value: formatFullDateTime(run.created_at) },
@@ -84,7 +94,9 @@ const runMeta = computed(() => {
 })
 
 const filteredRuns = computed(() => {
-  const keyword = String(runKeyword.value || '').trim().toLowerCase()
+  const keyword = String(runKeyword.value || '')
+    .trim()
+    .toLowerCase()
   if (!keyword) return sortedRuns.value
   return sortedRuns.value.filter((run) => {
     const runId = String(run.run_id || '').toLowerCase()
@@ -95,8 +107,16 @@ const filteredRuns = computed(() => {
 })
 
 const eventTypeOptions = computed(() => {
-  const values = Array.from(new Set([...(eventTypeCatalog.value || []), ...(runEvents.value || []).map((event) => event.event_type).filter(Boolean)])).sort()
-  return [{ label: '全部事件', value: undefined }, ...values.map((item) => ({ label: item, value: item }))]
+  const values = Array.from(
+    new Set([
+      ...(eventTypeCatalog.value || []),
+      ...(runEvents.value || []).map((event) => event.event_type).filter(Boolean)
+    ])
+  ).sort()
+  return [
+    { label: '全部事件', value: undefined },
+    ...values.map((item) => ({ label: item, value: item }))
+  ]
 })
 
 const filteredRunEvents = computed(() => {
@@ -107,13 +127,37 @@ const filteredRunEvents = computed(() => {
     if (eventFilters.value.actorType && event.actor_type !== eventFilters.value.actorType) {
       return false
     }
-    const actorNameKeyword = String(eventFilters.value.actorName || '').trim().toLowerCase()
-    if (actorNameKeyword && !String(event.actor_name || '').toLowerCase().includes(actorNameKeyword)) {
+    const actorNameKeyword = String(eventFilters.value.actorName || '')
+      .trim()
+      .toLowerCase()
+    if (
+      actorNameKeyword &&
+      !String(event.actor_name || '')
+        .toLowerCase()
+        .includes(actorNameKeyword)
+    ) {
       return false
     }
     return true
   })
 })
+
+const rowClassName = (record) => (record.run_id === selectedRunId.value ? 'row-selected' : '')
+
+const hasPayload = (event) => {
+  const payload = event.event_payload
+  return payload && typeof payload === 'object' && Object.keys(payload).length > 0
+}
+
+const togglePayload = (eventKey) => {
+  const next = new Set(expandedEvents.value)
+  if (next.has(eventKey)) {
+    next.delete(eventKey)
+  } else {
+    next.add(eventKey)
+  }
+  expandedEvents.value = next
+}
 
 const refreshAll = async () => {
   await runtimeStore.loadRuns()
@@ -172,14 +216,11 @@ watch(
   }
 )
 
-watch(
-  routeRunId,
-  async (runId) => {
-    const normalized = String(runId || '').trim()
-    if (!normalized || normalized === selectedRunId.value) return
-    await runtimeStore.selectRun(normalized)
-  }
-)
+watch(routeRunId, async (runId) => {
+  const normalized = String(runId || '').trim()
+  if (!normalized || normalized === selectedRunId.value) return
+  await runtimeStore.selectRun(normalized)
+})
 
 onMounted(async () => {
   await refreshAll()
@@ -193,130 +234,189 @@ onUnmounted(() => {
 
 <template>
   <div class="runtime-view layout-container">
-    <div class="runtime-header">
-      <div class="header-left">
-        <h2>Runtime 运行中心</h2>
-        <span>实时查看 Run 状态与事件时间线</span>
-      </div>
-      <div class="header-actions">
+    <HeaderComponent
+      title="Runtime 运行中心"
+      description="实时查看 Run 状态与事件时间线"
+      :loading="loadingRuns"
+    >
+      <template #actions>
         <a-input
           v-model:value="runKeyword"
-          style="width: 230px"
+          style="width: 220px"
           allow-clear
           placeholder="筛选 Run ID / Agent / 模式"
         />
         <a-select
           :value="filters.status"
-          style="width: 150px"
+          style="width: 140px"
           :options="statusOptions"
           allow-clear
           placeholder="按状态筛选"
           @change="handleStatusFilterChange"
         />
         <a-button type="primary" :loading="loadingRuns" @click="refreshAll">刷新</a-button>
-      </div>
-    </div>
+      </template>
+    </HeaderComponent>
 
     <div class="runtime-grid">
-      <a-card class="runtime-list-card" :bordered="false">
-        <template #title>运行列表</template>
-        <a-table
-          size="small"
-          :loading="loadingRuns"
-          :columns="tableColumns"
-          :data-source="filteredRuns"
-          :pagination="{ pageSize: 12, showSizeChanger: false }"
-          row-key="run_id"
-          :custom-row="
-            (record) => ({
-              onClick: () => handleSelectRun(record.run_id)
-            })
-          "
-        >
-          <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'run_id'">
-              <a-typography-text :strong="record.run_id === selectedRunId">{{ record.run_id }}</a-typography-text>
+      <!-- 左侧：运行列表 -->
+      <div class="glass-panel run-list-panel">
+        <div class="panel-header">
+          <span class="panel-title">运行列表</span>
+        </div>
+        <div class="panel-body">
+          <a-table
+            size="small"
+            class="custom-table"
+            :loading="loadingRuns"
+            :columns="tableColumns"
+            :data-source="filteredRuns"
+            :pagination="{ pageSize: 12, showSizeChanger: false }"
+            row-key="run_id"
+            :row-class-name="rowClassName"
+            :custom-row="
+              (record) => ({
+                onClick: () => handleSelectRun(record.run_id)
+              })
+            "
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'run_id'">
+                <a-typography-text :strong="record.run_id === selectedRunId">{{
+                  record.run_id
+                }}</a-typography-text>
+              </template>
+              <template v-else-if="column.key === 'status'">
+                <a-tag :color="statusColorMap[record.status] || 'default'">{{
+                  record.status
+                }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'created_at'">
+                <span>{{ formatFullDateTime(record.created_at) }}</span>
+              </template>
             </template>
-            <template v-else-if="column.key === 'status'">
-              <a-tag :color="statusColorMap[record.status] || 'default'">{{ record.status }}</a-tag>
-            </template>
-            <template v-else-if="column.key === 'created_at'">
-              <span>{{ formatFullDateTime(record.created_at) }}</span>
-            </template>
-          </template>
-        </a-table>
-      </a-card>
+          </a-table>
+        </div>
+      </div>
 
+      <!-- 右侧：详情 + 事件 -->
       <div class="runtime-detail-stack">
-        <a-card class="runtime-detail-card" :bordered="false">
-          <template #title>运行详情</template>
-          <template #extra>
+        <!-- 运行详情 -->
+        <div class="glass-panel run-detail-panel">
+          <div class="panel-header">
+            <span class="panel-title">运行详情</span>
             <a-space>
-              <a-button size="small" :disabled="!selectedRunId" @click="handleResume">恢复</a-button>
+              <a-button size="small" :disabled="!selectedRunId" @click="handleResume"
+                >恢复</a-button
+              >
               <a-button size="small" :disabled="!selectedRunId" @click="handleRetry">重试</a-button>
-              <a-button size="small" danger :disabled="!selectedRunId" @click="handleCancel">取消</a-button>
+              <a-button size="small" danger :disabled="!selectedRunId" @click="handleCancel"
+                >取消</a-button
+              >
             </a-space>
-          </template>
-          <a-empty v-if="!selectedRun" description="请选择一个运行记录" />
-          <a-descriptions v-else size="small" :column="2" bordered>
-            <a-descriptions-item v-for="item in runMeta" :key="item.label" :label="item.label">
-              {{ item.value }}
-            </a-descriptions-item>
-          </a-descriptions>
-        </a-card>
-
-        <a-card class="runtime-events-card" :bordered="false">
-          <template #title>事件时间线</template>
-          <template #extra>
-            <span class="events-count">筛选后 {{ filteredRunEvents.length }} / 总计 {{ runEvents.length }}</span>
-          </template>
-          <a-empty v-if="!selectedRunId" description="请选择运行记录后查看事件" />
-          <a-spin v-else :spinning="loadingEvents">
-            <div class="events-filter-bar">
-              <a-select
-                :value="eventFilters.eventType"
-                style="width: 220px"
-                :options="eventTypeOptions"
-                allow-clear
-                placeholder="筛选事件类型"
-                @change="(value) => updateEventFilters({ eventType: value })"
-              />
-              <a-select
-                :value="eventFilters.actorType"
-                style="width: 160px"
-                :options="actorTypeOptions"
-                allow-clear
-                placeholder="筛选角色"
-                @change="(value) => updateEventFilters({ actorType: value })"
-              />
-              <a-input
-                :value="eventFilters.actorName"
-                style="width: 180px"
-                allow-clear
-                placeholder="筛选执行者"
-                @change="(e) => updateEventFilters({ actorName: e.target.value || '' })"
-              />
-              <a-button size="small" @click="resetEventFilters">重置筛选</a-button>
-            </div>
-            <a-timeline class="runtime-timeline">
-              <a-timeline-item v-for="event in filteredRunEvents" :key="`${event.run_id}:${event.seq}`">
-                <div class="event-line">
-                  <a-space :size="8">
-                    <a-tag :color="eventTypeColor(event.event_type)">{{ event.event_type }}</a-tag>
-                    <a-tag>{{ event.actor_type }}</a-tag>
-                    <span class="event-seq">#{{ event.seq }}</span>
-                  </a-space>
-                  <span class="event-time">
-                    {{ formatFullDateTime(event.event_ts) }}
-                    <span class="event-relative">({{ formatRelative(event.event_ts) }})</span>
-                  </span>
+          </div>
+          <div class="panel-body">
+            <a-empty v-if="!selectedRun" description="请选择一个运行记录" />
+            <div v-else class="detail-grid">
+              <div v-for="item in runMeta" :key="item.label" class="info-item">
+                <div class="info-label">{{ item.label }}</div>
+                <div class="info-value" :class="{ mono: item.mono }">
+                  <a-tag
+                    v-if="item.isStatus"
+                    :color="statusColorMap[item.value] || 'default'"
+                    size="small"
+                  >
+                    {{ item.value }}
+                  </a-tag>
+                  <template v-else>{{ item.value }}</template>
                 </div>
-                <div class="event-actor">{{ event.actor_name || '-' }}</div>
-                <pre class="event-payload">{{ JSON.stringify(event.event_payload || {}, null, 2) }}</pre>
-              </a-timeline-item>
-            </a-timeline>
-          </a-spin>
-        </a-card>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 事件时间线 -->
+        <div class="glass-panel run-events-panel">
+          <div class="panel-header">
+            <span class="panel-title">事件时间线</span>
+            <span class="events-count"
+              >{{ filteredRunEvents.length }} / {{ runEvents.length }}</span
+            >
+          </div>
+          <div class="panel-body events-body">
+            <a-empty v-if="!selectedRunId" description="请选择运行记录后查看事件" />
+            <a-spin v-else :spinning="loadingEvents">
+              <div class="events-filter-bar">
+                <a-select
+                  :value="eventFilters.eventType"
+                  style="width: 220px"
+                  :options="eventTypeOptions"
+                  allow-clear
+                  placeholder="筛选事件类型"
+                  @change="(value) => updateEventFilters({ eventType: value })"
+                />
+                <a-select
+                  :value="eventFilters.actorType"
+                  style="width: 150px"
+                  :options="actorTypeOptions"
+                  allow-clear
+                  placeholder="筛选角色"
+                  @change="(value) => updateEventFilters({ actorType: value })"
+                />
+                <a-input
+                  :value="eventFilters.actorName"
+                  style="width: 170px"
+                  allow-clear
+                  placeholder="筛选执行者"
+                  @change="(e) => updateEventFilters({ actorName: e.target.value || '' })"
+                />
+                <a-button size="small" @click="resetEventFilters">重置</a-button>
+              </div>
+              <a-timeline class="runtime-timeline">
+                <a-timeline-item
+                  v-for="event in filteredRunEvents"
+                  :key="`${event.run_id}:${event.seq}`"
+                >
+                  <div class="event-card">
+                    <div class="event-line">
+                      <a-space :size="6" wrap>
+                        <a-tag :color="eventTypeColor(event.event_type)" size="small">{{
+                          event.event_type
+                        }}</a-tag>
+                        <a-tag size="small">{{ event.actor_type }}</a-tag>
+                        <span class="event-seq">#{{ event.seq }}</span>
+                        <span v-if="event.actor_name" class="event-actor">{{
+                          event.actor_name
+                        }}</span>
+                      </a-space>
+                      <span class="event-time">
+                        {{ formatFullDateTime(event.event_ts) }}
+                        <span class="event-relative">({{ formatRelative(event.event_ts) }})</span>
+                      </span>
+                    </div>
+                    <div v-if="hasPayload(event)" class="event-payload-section">
+                      <a
+                        class="payload-toggle"
+                        @click.prevent="togglePayload(`${event.run_id}:${event.seq}`)"
+                      >
+                        {{
+                          expandedEvents.has(`${event.run_id}:${event.seq}`)
+                            ? '收起 Payload'
+                            : '查看 Payload'
+                        }}
+                      </a>
+                      <pre
+                        v-if="expandedEvents.has(`${event.run_id}:${event.seq}`)"
+                        class="event-payload"
+                        >{{ JSON.stringify(event.event_payload, null, 2) }}</pre
+                      >
+                    </div>
+                  </div>
+                </a-timeline-item>
+              </a-timeline>
+            </a-spin>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -324,97 +424,161 @@ onUnmounted(() => {
 
 <style lang="less" scoped>
 .runtime-view {
-  padding: 20px;
+  padding: 24px 30px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-}
-
-.runtime-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  padding: 16px 18px;
-  border: 1px solid var(--gray-100);
-  border-radius: 14px;
-  background: linear-gradient(120deg, var(--main-0) 0%, rgba(24, 144, 255, 0.06) 100%);
-}
-
-.header-left {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.header-left h2 {
-  margin: 0;
-  font-size: 20px;
-  color: var(--gray-1000);
-}
-
-.header-left span {
-  color: var(--gray-600);
-  font-size: 13px;
-}
-
-.header-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
+  height: 100%;
+  overflow: hidden;
 }
 
 .runtime-grid {
   display: grid;
-  grid-template-columns: minmax(480px, 48%) 1fr;
-  gap: 14px;
+  grid-template-columns: minmax(460px, 46%) 1fr;
+  gap: 16px;
   min-height: 0;
   flex: 1 1 auto;
 }
 
-.runtime-list-card,
-.runtime-detail-card,
-.runtime-events-card {
-  border-radius: 14px;
-  box-shadow: 0 4px 16px rgba(9, 30, 66, 0.06);
+// --- Panel 通用样式 ---
+.glass-panel {
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.runtime-detail-stack {
-  display: grid;
-  grid-template-rows: auto 1fr;
-  gap: 14px;
+.panel-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--gray-100);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.panel-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gray-900);
+}
+
+.panel-body {
+  padding: 16px 20px;
+  flex: 1;
+  overflow: auto;
   min-height: 0;
 }
 
-.runtime-events-card {
-  min-height: 380px;
+// --- 运行列表 ---
+.run-list-panel {
+  min-height: 0;
 }
 
-.runtime-timeline {
-  max-height: 540px;
-  overflow-y: auto;
-  padding-right: 6px;
+:deep(.custom-table) {
+  .ant-table-thead > tr > th {
+    background: var(--gray-50);
+    color: var(--gray-700);
+    font-weight: 600;
+  }
+
+  .ant-table-tbody > tr {
+    cursor: pointer;
+  }
+
+  .ant-table-tbody > tr.row-selected > td {
+    background: var(--main-0) !important;
+  }
+
+  .ant-table-tbody > tr.row-selected:hover > td {
+    background: var(--main-100) !important;
+  }
+}
+
+// --- 右侧堆叠 ---
+.runtime-detail-stack {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 16px;
+  min-height: 0;
+}
+
+// --- 详情面板 ---
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 24px;
+}
+
+.info-item {
+  .info-label {
+    font-size: 12px;
+    color: var(--gray-500);
+    margin-bottom: 2px;
+  }
+
+  .info-value {
+    font-size: 13px;
+    color: var(--gray-800);
+    word-break: break-all;
+
+    &.mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New', monospace;
+    }
+  }
+}
+
+// --- 事件面板 ---
+.run-events-panel {
+  min-height: 0;
+}
+
+.events-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.events-count {
+  color: var(--gray-500);
+  font-size: 12px;
 }
 
 .events-filter-bar {
-  margin-bottom: 10px;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--gray-100);
+  margin-bottom: 14px;
+  flex-shrink: 0;
+}
+
+.runtime-timeline {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
+  min-height: 0;
+}
+
+.event-card {
+  padding: 10px 14px;
+  background: var(--gray-0);
+  border: 1px solid var(--gray-100);
+  border-radius: 8px;
 }
 
 .event-line {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .event-time {
   font-size: 12px;
   color: var(--gray-500);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .event-relative {
@@ -422,22 +586,34 @@ onUnmounted(() => {
 }
 
 .event-seq {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New', monospace;
   font-size: 12px;
   color: var(--gray-600);
 }
 
 .event-actor {
-  margin-top: 4px;
-  margin-bottom: 6px;
-  color: var(--gray-700);
   font-size: 12px;
+  color: var(--gray-600);
+}
+
+.event-payload-section {
+  margin-top: 8px;
+}
+
+.payload-toggle {
+  font-size: 12px;
+  color: var(--main-500);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--main-600);
+  }
 }
 
 .event-payload {
-  margin: 0;
+  margin: 6px 0 0;
   padding: 10px;
-  border-radius: 8px;
+  border-radius: 6px;
   border: 1px solid var(--gray-100);
   background: var(--gray-50);
   font-size: 12px;
@@ -446,10 +622,5 @@ onUnmounted(() => {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.events-count {
-  color: var(--gray-500);
-  font-size: 12px;
 }
 </style>

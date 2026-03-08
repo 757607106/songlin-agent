@@ -74,7 +74,7 @@ def test_wizard_step_reports_missing_required_fields():
 
 def test_wizard_step_with_ai_autofills_dev_team():
     """Test that AI generates a development team with deep_agents mode.
-    
+
     Note: AI-generated agent names may vary, so we only check:
     - Team is complete
     - Mode is deep_agents
@@ -91,7 +91,9 @@ def test_wizard_step_with_ai_autofills_dev_team():
     # Each subagent should have required fields
     for sa in draft["subagents"]:
         assert sa.get("name"), "Each subagent should have a name"
-        assert sa.get("description") or sa.get("system_prompt"), "Each subagent should have description or system_prompt"
+        assert sa.get("description") or sa.get("system_prompt"), (
+            "Each subagent should have description or system_prompt"
+        )
 
 
 def test_wizard_step_with_ai_uses_llm_patch(monkeypatch):

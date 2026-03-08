@@ -111,6 +111,25 @@ class DynamicAgentContext(BaseContext):
         },
     )
 
+    spawn_enabled: bool = field(
+        default=True,
+        metadata={
+            "name": "启用动态 Spawn",
+            "description": (
+                "是否允许主智能体在对话中动态创建子智能体。"
+                "启用后，LLM 可自主调用 spawn_subagent 工具来创建隔离的子智能体处理子任务。"
+            ),
+        },
+    )
+
+    max_spawn_concurrency: int = field(
+        default=5,
+        metadata={
+            "name": "最大 Spawn 并发数",
+            "description": "同时运行的动态 Spawn 子智能体上限，防止资源耗尽。",
+        },
+    )
+
     skills: Annotated[
         list[str],
         {"__template_metadata__": {"kind": "skills"}},

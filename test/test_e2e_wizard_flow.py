@@ -1,4 +1,5 @@
 """端到端契约测试 wizard_step_with_ai（不依赖真实模型调用）"""
+
 from __future__ import annotations
 
 import os

@@ -52,6 +52,8 @@ const displayRunId = computed(() => {
 .runtime-id {
   font-size: 12px;
   color: var(--gray-700);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
 }
 </style>

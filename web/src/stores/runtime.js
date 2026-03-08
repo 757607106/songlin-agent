@@ -198,7 +198,10 @@ export const useRuntimeStore = defineStore('runtime', () => {
     timer = setInterval(async () => {
       await loadRuns()
       if (selectedRun.value?.run_id) {
-        await Promise.all([loadRunDetail(selectedRun.value.run_id), loadRunEvents(selectedRun.value.run_id)])
+        await Promise.all([
+          loadRunDetail(selectedRun.value.run_id),
+          loadRunEvents(selectedRun.value.run_id)
+        ])
       }
     }, interval)
   }

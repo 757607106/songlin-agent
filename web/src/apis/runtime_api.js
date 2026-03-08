@@ -3,7 +3,9 @@ import { apiGet, apiPost } from './base'
 const BASE_URL = '/api/runtime'
 const toQueryString = (params = {}) => {
   const normalized = Object.fromEntries(
-    Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '')
+    Object.entries(params).filter(
+      ([, value]) => value !== undefined && value !== null && value !== ''
+    )
   )
   return new URLSearchParams(normalized).toString()
 }
@@ -26,7 +28,9 @@ export const runtimeApi = {
 
   fetchRunEvents: async (runId, params = {}) => {
     const query = toQueryString(params)
-    const url = query ? `${BASE_URL}/runs/${runId}/events?${query}` : `${BASE_URL}/runs/${runId}/events`
+    const url = query
+      ? `${BASE_URL}/runs/${runId}/events?${query}`
+      : `${BASE_URL}/runs/${runId}/events`
     return apiGet(url)
   },
 

@@ -26,6 +26,7 @@ from src.agents.common.deepagent_runtime import (
     create_subagent_middlewares,
 )
 from src.agents.common.subagents.registry import ToolResolver
+from src.agents.common.tools.spawn_tool import get_spawn_tool
 from src.services.mcp_service import get_enabled_mcp_tools
 from src.services.skill_catalog_service import resolve_skill_sources
 from src.services.team_orchestration_service import team_orchestration_service
@@ -130,6 +131,18 @@ class DynamicAgentFactory:
         cls._graph_cache.clear()
         logger.info("DynamicAgentFactory: graph cache cleared")
 
+    def _maybe_get_spawn_tool(self, context: DynamicAgentContext) -> list:
+        """Return a list containing the SpawnTool if spawning is enabled."""
+        if not getattr(context, "spawn_enabled", True):
+            return []
+        max_conc = getattr(context, "max_spawn_concurrency", 5)
+        spawn_tool = get_spawn_tool(
+            max_concurrency=max_conc,
+            model_name=context.model,
+        )
+        logger.info(f"DynamicAgentFactory: SpawnTool enabled (max_concurrency={max_conc})")
+        return [spawn_tool]
+
     async def _collect_mcp_tools(self, context: DynamicAgentContext) -> list[Any]:
         """Load only MCP tools required by current main agent + subagents."""
         started_at = time.perf_counter()
@@ -218,7 +231,7 @@ class DynamicAgentFactory:
         context.skills = runtime_context["skills"]
 
         mode = context.multi_agent_mode
-        
+
         # Try to get cached graph (only for modes without external state dependencies)
         # Note: checkpointer and store are passed at compile time, so we can cache
         # the base graph structure and re-compile with new state backends
@@ -226,7 +239,7 @@ class DynamicAgentFactory:
         # For now, we don't use cache when checkpointer/store are provided
         # since they need to be bound at compile time
         use_cache = checkpointer is None and store is None
-        
+
         if use_cache:
             cached = self._get_cached_graph(cache_key)
             if cached is not None:
@@ -274,6 +287,9 @@ class DynamicAgentFactory:
             knowledges=context.knowledges,
             mcps=context.mcps,
         )
+        # Inject SpawnTool if enabled — lets the LLM spawn sub-agents at runtime
+        tools.extend(self._maybe_get_spawn_tool(context))
+
         mcp_tools = await self._collect_mcp_tools(context)
         skill_sources = resolve_skill_sources(context.skills)
 
@@ -307,6 +323,9 @@ class DynamicAgentFactory:
             knowledges=context.knowledges,
             mcps=context.mcps,
         )
+        # Inject SpawnTool if enabled
+        main_tools.extend(self._maybe_get_spawn_tool(context))
+
         mcp_tools = await self._collect_mcp_tools(context)
         main_skill_sources = resolve_skill_sources(context.skills)
 
@@ -391,6 +410,8 @@ class DynamicAgentFactory:
         """Build LangGraph Supervisor mode (fully observable subagents)."""
         model = load_chat_model(context.model)
         mcp_tools = await self._collect_mcp_tools(context)
+        # Note: SpawnTool is injected into supervisor's own tool set (not subagents)
+        spawn_tools = self._maybe_get_spawn_tool(context)
 
         # Resolve tools for each subagent
         subagent_tools: dict[str, list] = {}

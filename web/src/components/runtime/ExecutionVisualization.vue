@@ -36,7 +36,10 @@
           <span class="agent-name">{{ agent.name }}</span>
           <span class="agent-status">
             <span v-if="activeAgent === agent.name" class="status-dot active"></span>
-            <span v-else-if="completedAgents.includes(agent.name)" class="status-dot completed"></span>
+            <span
+              v-else-if="completedAgents.includes(agent.name)"
+              class="status-dot completed"
+            ></span>
             <span v-else class="status-dot pending"></span>
           </span>
         </div>

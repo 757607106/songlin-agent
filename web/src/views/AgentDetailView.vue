@@ -217,11 +217,7 @@
                     <Trash2 :size="14" />
                   </a-button>
                 </div>
-                <a-input
-                  v-model:value="agent.description"
-                  placeholder="职责描述"
-                  class="mt-8"
-                />
+                <a-input v-model:value="agent.description" placeholder="职责描述" class="mt-8" />
                 <a-textarea
                   v-model:value="agent.system_prompt"
                   placeholder="系统提示词"

@@ -2,9 +2,9 @@
   <div class="subagent-editor">
     <!-- 子智能体列表 -->
     <div class="subagent-list">
-      <div 
-        v-for="(agent, index) in modelValue" 
-        :key="index" 
+      <div
+        v-for="(agent, index) in modelValue"
+        :key="index"
         class="subagent-card"
         :class="{ 'is-default': agent.is_default }"
       >
@@ -13,7 +13,9 @@
             <div class="subagent-name">
               <span class="subagent-index">{{ index + 1 }}</span>
               <span class="name-text">{{ agent.name || `子智能体 ${index + 1}` }}</span>
-              <a-tag v-if="agent.is_default" color="blue" size="small" class="default-tag">默认</a-tag>
+              <a-tag v-if="agent.is_default" color="blue" size="small" class="default-tag"
+                >默认</a-tag
+              >
             </div>
             <!-- 能力标签 -->
             <div class="capability-tags" v-if="!isExpanded(index)">
@@ -23,7 +25,10 @@
                   {{ agent.tools.length }}
                 </span>
               </a-tooltip>
-              <a-tooltip v-if="agent.knowledges?.length" :title="`知识库: ${agent.knowledges.join(', ')}`">
+              <a-tooltip
+                v-if="agent.knowledges?.length"
+                :title="`知识库: ${agent.knowledges.join(', ')}`"
+              >
                 <span class="cap-tag cap-kb">
                   <Database :size="12" />
                   {{ agent.knowledges.length }}
@@ -41,7 +46,10 @@
                   {{ agent.skills.length }}
                 </span>
               </a-tooltip>
-              <a-tooltip v-if="agent.depends_on?.length" :title="`依赖: ${agent.depends_on.join(', ')}`">
+              <a-tooltip
+                v-if="agent.depends_on?.length"
+                :title="`依赖: ${agent.depends_on.join(', ')}`"
+              >
                 <span class="cap-tag cap-deps">
                   <GitBranch :size="12" />
                   {{ agent.depends_on.length }}
@@ -51,9 +59,9 @@
           </div>
           <div class="subagent-actions">
             <a-tooltip title="设为默认 Agent">
-              <a-button 
-                type="text" 
-                size="small" 
+              <a-button
+                type="text"
+                size="small"
                 @click.stop="setDefaultAgent(index)"
                 :class="{ 'is-default-btn': agent.is_default }"
               >
@@ -204,11 +212,7 @@
           </div>
           <div v-if="agent.depends_on?.length" class="dep-arrows">
             <span class="arrow-text">← 依赖 →</span>
-            <span 
-              v-for="dep in agent.depends_on" 
-              :key="dep" 
-              class="dep-target"
-            >
+            <span v-for="dep in agent.depends_on" :key="dep" class="dep-target">
               {{ dep }}
             </span>
           </div>
@@ -226,9 +230,18 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { 
-  Plus, Trash2, ChevronDown, ChevronUp, Sparkles, 
-  Wrench, Database, Plug, Zap, GitBranch, Star 
+import {
+  Plus,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
+  Sparkles,
+  Wrench,
+  Database,
+  Plug,
+  Zap,
+  GitBranch,
+  Star
 } from 'lucide-vue-next'
 import { message } from 'ant-design-vue'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
@@ -338,15 +351,15 @@ const isExpanded = (index) => expandedIndex.value === index
 
 // 是否有依赖关系
 const hasDependencies = computed(() => {
-  return props.modelValue?.some(agent => agent.depends_on?.length > 0)
+  return props.modelValue?.some((agent) => agent.depends_on?.length > 0)
 })
 
 // 获取可依赖的 Agent 列表（排除自身）
 const getDependencyOptions = (currentIndex) => {
   return (props.modelValue || [])
     .filter((_, idx) => idx !== currentIndex)
-    .filter(agent => agent.name) // 只显示有名称的 agent
-    .map(agent => ({
+    .filter((agent) => agent.name) // 只显示有名称的 agent
+    .map((agent) => ({
       label: agent.name,
       value: agent.name
     }))
@@ -416,7 +429,7 @@ const optimizeSubagentPrompt = async (index) => {
 onMounted(() => {
   fetchOptions()
   // 如果没有设置默认 agent，设置第一个为默认
-  if (props.modelValue?.length > 0 && !props.modelValue.some(a => a.is_default)) {
+  if (props.modelValue?.length > 0 && !props.modelValue.some((a) => a.is_default)) {
     setDefaultAgent(0)
   }
 })

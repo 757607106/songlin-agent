@@ -138,10 +138,7 @@ async def test_team_session_flow_create_resume_and_create_profile(test_client, s
     session_data = create_session.json()
     thread_id = session_data["thread_id"]
     available_skills = (
-        session_data.get("team_builder", {})
-        .get("resource_validation", {})
-        .get("available", {})
-        .get("skills", [])
+        session_data.get("team_builder", {}).get("resource_validation", {}).get("available", {}).get("skills", [])
     )
     draft = session_data["team_builder"]["draft"]
     assert draft["skills"] == []

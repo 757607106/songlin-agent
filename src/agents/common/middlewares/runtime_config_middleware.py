@@ -61,7 +61,9 @@ class RuntimeConfigMiddleware(AgentMiddleware):
         self.enable_system_prompt_override = enable_system_prompt_override
         self.enable_tools_override = enable_tools_override
         self._model_cache: dict[str, Any] = {}
-        self._tool_selection_cache: dict[tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]], tuple[float, list]] = {}
+        self._tool_selection_cache: dict[
+            tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]], tuple[float, list]
+        ] = {}
         self._tool_selection_cache_ttl_seconds = 5.0
 
         self.tools: list[Any] = []
@@ -99,9 +101,7 @@ class RuntimeConfigMiddleware(AgentMiddleware):
                         model = load_chat_model(model_spec)
                         self._model_cache[model_spec] = model
                         elapsed_ms = (time.perf_counter() - started_at) * 1000
-                        logger.info(
-                            f"RuntimeConfigMiddleware initialized model '{model_spec}' in {elapsed_ms:.1f}ms"
-                        )
+                        logger.info(f"RuntimeConfigMiddleware initialized model '{model_spec}' in {elapsed_ms:.1f}ms")
                 else:
                     model = model_spec
                 overrides["model"] = model

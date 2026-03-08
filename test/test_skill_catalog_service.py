@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 
 from src.services import skill_catalog_service
 

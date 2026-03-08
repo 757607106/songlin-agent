@@ -12,31 +12,13 @@
       <!-- 步骤 1: 选择模式 -->
       <div v-if="step === 1" class="step-content">
         <div class="auto-team-panel">
-          <h3 class="step-title">一句话自动组建团队</h3>
-          <p class="step-hint">输入目标即可自动生成团队职责分工，默认基于 Deep Agents 协作模式。</p>
-          <a-textarea
-            v-model:value="autoTeamPrompt"
-            :rows="3"
-            placeholder="示例：帮我组建一个需求开发团队，包含前端、后端、测试、文档和产品角色。"
-          />
+          <h3 class="step-title">AI 自动组建团队</h3>
+          <p class="step-hint">通过与团队架构师 AI 对话，自动分析需求、设计团队拓扑并一键部署。</p>
           <div class="auto-team-actions">
-            <a-button
-              type="primary"
-              :loading="autoGenerating"
-              :disabled="!autoTeamPrompt.trim()"
-              @click="generateTeamFromPrompt"
-            >
+            <a-button type="primary" @click="goTeamBuilder">
               <Sparkles :size="14" />
-              AI 生成团队草稿
+              进入团队架构师
             </a-button>
-            <a-button
-              :loading="autoCreating"
-              :disabled="!autoTeamPrompt.trim()"
-              @click="autoCreateTeam"
-            >
-              一键创建并保存
-            </a-button>
-            <a-button @click="goTeamBuilder">进入聊天式组队</a-button>
           </div>
         </div>
 
@@ -334,13 +316,10 @@ const defaultForm = () => ({
 })
 
 const form = ref(defaultForm())
-const autoTeamPrompt = ref('')
 const step = ref(1)
 const submitting = ref(false)
 const optimizingMain = ref(false)
 const optimizingSupervisor = ref(false)
-const autoGenerating = ref(false)
-const autoCreating = ref(false)
 
 // 工具/知识库/MCP 选项加载
 const loadingOptions = ref(false)
@@ -498,80 +477,7 @@ const optimizeSupervisorPrompt = async () => {
 const handleClose = () => {
   step.value = 1
   form.value = defaultForm()
-  autoTeamPrompt.value = ''
   emit('close')
-}
-
-const applyTeamDraft = (draft) => {
-  if (!draft || typeof draft !== 'object') return
-  form.value.multi_agent_mode = draft.multi_agent_mode || form.value.multi_agent_mode || 'deep_agents'
-  form.value.team_goal = draft.team_goal || form.value.team_goal
-  form.value.task_scope = draft.task_scope || form.value.task_scope
-  form.value.communication_protocol = draft.communication_protocol || form.value.communication_protocol
-  form.value.max_parallel_tasks = draft.max_parallel_tasks || form.value.max_parallel_tasks
-  form.value.allow_cross_agent_comm =
-    typeof draft.allow_cross_agent_comm === 'boolean'
-      ? draft.allow_cross_agent_comm
-      : form.value.allow_cross_agent_comm
-  form.value.system_prompt = draft.system_prompt || form.value.system_prompt
-  form.value.supervisor_system_prompt = draft.supervisor_system_prompt || form.value.supervisor_system_prompt
-  form.value.skills = draft.skills || form.value.skills
-  form.value.subagents = draft.subagents || form.value.subagents
-
-  if (!form.value.name?.trim()) {
-    const seed = draft.team_goal || autoTeamPrompt.value
-    if (seed) {
-      form.value.name = seed.slice(0, 24)
-    }
-  }
-  if (!form.value.description?.trim() && draft.task_scope) {
-    form.value.description = draft.task_scope.slice(0, 120)
-  }
-}
-
-const generateTeamFromPrompt = async () => {
-  if (!autoTeamPrompt.value.trim()) return
-  autoGenerating.value = true
-  try {
-    const res = await agentApi.teamWizardStep('DynamicAgent', autoTeamPrompt.value, null, true)
-    const draft = res.draft || {}
-    applyTeamDraft(draft)
-    const subCount = (draft.subagents || []).length
-    if (subCount > 0) {
-      message.success(`已生成团队草稿（${subCount} 个子智能体）`)
-    } else {
-      message.warning('草稿已生成，但还缺少子智能体，请补充输入后重试')
-    }
-    step.value = 2
-  } catch (e) {
-    console.error('自动组队失败:', e)
-    message.error('自动组队失败，请稍后重试')
-  } finally {
-    autoGenerating.value = false
-  }
-}
-
-const autoCreateTeam = async () => {
-  if (!autoTeamPrompt.value.trim()) return
-  autoCreating.value = true
-  try {
-    const payload = {
-      message: autoTeamPrompt.value,
-      name: form.value.name?.trim() || undefined,
-      description: form.value.description?.trim() || undefined,
-      set_default: true,
-      auto_complete: true
-    }
-    await agentApi.autoCreateTeamProfile('DynamicAgent', payload)
-    message.success('AI 团队已创建')
-    handleClose()
-    emit('submit', { refreshOnly: true })
-  } catch (e) {
-    console.error('自动创建团队失败:', e)
-    message.error('自动创建失败，请先生成草稿并手动确认')
-  } finally {
-    autoCreating.value = false
-  }
 }
 
 const goTeamBuilder = () => {

@@ -350,7 +350,7 @@ def get_buildin_tools() -> list:
     ]
 
     # subagents 工具
-    from .subagents import calc_agent_tool
+    from src.agents.common.subagents import calc_agent_tool
 
     static_tools.append(calc_agent_tool)
 

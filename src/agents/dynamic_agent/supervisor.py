@@ -167,11 +167,11 @@ async def build_supervisor_graph(
         sa["name"]: max(0, int(sa.get("max_retries", 1) or 1)) for sa in subagent_configs if sa.get("name")
     }
     max_route_rounds = max(5, int(team_policy.get("max_route_rounds") or (len(agent_names) * 4 + 8)))
-    
+
     # Global timeout settings (seconds)
     global_timeout = float(team_policy.get("global_timeout") or 300)  # Default 5 minutes
     per_agent_timeout = float(team_policy.get("per_agent_timeout") or 60)  # Default 1 minute
-    
+
     # Fallback agent for degradation (first agent by default)
     fallback_agent = team_policy.get("fallback_agent") or (agent_names[0] if agent_names else None)
 
@@ -203,7 +203,7 @@ async def build_supervisor_graph(
     async def supervisor_node(state: SupervisorState) -> Command:
         """Supervisor decides which subagent to route to next."""
         import time
-        
+
         route_history = list(state.get("route_history") or [])
         completed_agents = list(state.get("completed_agents") or [])
         failed_agents = list(state.get("failed_agents") or [])
@@ -212,21 +212,23 @@ async def build_supervisor_graph(
         active_agent = state.get("active_agent")
         start_time = state.get("start_time") or time.time()
         error_context = dict(state.get("error_context") or {})
-        
+
         # Initialize start time on first call
         if not state.get("start_time"):
             start_time = time.time()
-        
+
         # Global timeout check
         elapsed = time.time() - start_time
         if elapsed > global_timeout:
             reason = f"全局执行超时（{elapsed:.1f}s > {global_timeout}s），已安全终止。"
-            execution_log.append({
-                "ts": _now_iso(),
-                "type": "global_timeout",
-                "elapsed": elapsed,
-                "limit": global_timeout,
-            })
+            execution_log.append(
+                {
+                    "ts": _now_iso(),
+                    "type": "global_timeout",
+                    "elapsed": elapsed,
+                    "limit": global_timeout,
+                }
+            )
             return Command(
                 goto=END,
                 update={
@@ -244,12 +246,14 @@ async def build_supervisor_graph(
                 # Agent failed - add to failed list and try degradation
                 if active_agent not in failed_agents:
                     failed_agents.append(active_agent)
-                execution_log.append({
-                    "ts": _now_iso(),
-                    "type": "agent_failure",
-                    "agent": active_agent,
-                    "error": str(error_context.get("error"))[:200],
-                })
+                execution_log.append(
+                    {
+                        "ts": _now_iso(),
+                        "type": "agent_failure",
+                        "agent": active_agent,
+                        "error": str(error_context.get("error"))[:200],
+                    }
+                )
                 # Clear error context
                 error_context = {}
             else:
@@ -286,7 +290,7 @@ async def build_supervisor_graph(
             retry_counts=retry_counts,
             retry_limits=retry_limits,
         )
-        
+
         # Exclude failed agents from eligible targets
         eligible_targets = [t for t in eligible_targets if t not in failed_agents]
 
@@ -380,10 +384,7 @@ async def build_supervisor_graph(
             allowed_targets = communication_matrix.get(source_agent) or []
             if allowed_targets and requested_target not in allowed_targets:
                 fallback_target = allowed_targets[0]
-                gate_reason = (
-                    f"`{source_agent}` 无权直接通信到 `{requested_target}`，"
-                    f"自动改派到 `{fallback_target}`。"
-                )
+                gate_reason = f"`{source_agent}` 无权直接通信到 `{requested_target}`，自动改派到 `{fallback_target}`。"
                 execution_log.append(
                     {
                         "ts": _now_iso(),
@@ -412,8 +413,7 @@ async def build_supervisor_graph(
         if unmet:
             fallback_target = unmet[0]
             gate_reason = (
-                f"`{requested_target}` 依赖未满足（缺少: {', '.join(unmet)}），"
-                f"自动改派到 `{fallback_target}`。"
+                f"`{requested_target}` 依赖未满足（缺少: {', '.join(unmet)}），自动改派到 `{fallback_target}`。"
             )
             execution_log.append(
                 {
@@ -444,10 +444,7 @@ async def build_supervisor_graph(
 
         retry_limit = retry_limits.get(requested_target, 1)
         if retry_counts[requested_target] > retry_limit:
-            finish_reason = (
-                f"`{requested_target}` 超过重试上限({retry_limit})，"
-                "为防止循环调用已终止。"
-            )
+            finish_reason = f"`{requested_target}` 超过重试上限({retry_limit})，为防止循环调用已终止。"
             execution_log.append(
                 {
                     "ts": _now_iso(),
@@ -493,21 +490,17 @@ async def build_supervisor_graph(
                 "error_context": {},  # Clear error context for new route
             },
         )
-    
+
     # Build subagent wrapper with timeout and error handling
     def create_subagent_wrapper(sa_graph: CompiledStateGraph, agent_name: str):
         """Create a wrapper for subagent with timeout and error handling."""
+
         async def wrapped_subagent(state: SupervisorState) -> dict:
-            import time
-            
             try:
                 # Run subagent with timeout
-                result = await asyncio.wait_for(
-                    sa_graph.ainvoke(state),
-                    timeout=per_agent_timeout
-                )
+                result = await asyncio.wait_for(sa_graph.ainvoke(state), timeout=per_agent_timeout)
                 return result
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 error_msg = f"Agent `{agent_name}` 执行超时（>{per_agent_timeout}s）"
                 logger.warning(error_msg)
                 return {
@@ -521,6 +514,7 @@ async def build_supervisor_graph(
                     "messages": [AIMessage(content=error_msg)],
                     "error_context": {"agent": agent_name, "error": str(e)},
                 }
+
         return wrapped_subagent
 
     # Build the StateGraph
@@ -543,7 +537,6 @@ async def build_supervisor_graph(
     )
 
     logger.info(
-        "SupervisorBuilder: graph compiled with "
-        f"{len(subagent_graphs)} subagent nodes: {list(subagent_graphs.keys())}"
+        f"SupervisorBuilder: graph compiled with {len(subagent_graphs)} subagent nodes: {list(subagent_graphs.keys())}"
     )
     return graph

@@ -76,7 +76,7 @@ class BaseAgent:
             yield event["messages"]
 
     async def stream_messages(self, messages: list[str], input_context=None, **kwargs):
-        graph = await self.get_graph()
+        graph = await self.get_graph(**(input_context or {}))
         context = self._build_runtime_context(input_context)
         logger.debug(f"stream_messages: {context}")
 
@@ -100,7 +100,7 @@ class BaseAgent:
             subgraphs=True,
         ):
             current_time = time.time()
-            
+
             # graph.astream with subgraphs=True + multi-mode returns 3-tuples
             namespace, mode, data = item[0], item[1], item[2]
 
@@ -135,7 +135,7 @@ class BaseAgent:
                 }
                 last_event_time = current_time
                 yield update_event, {"mode": "updates"}
-            
+
             # 检查是否需要发送心跳
             if current_time - last_event_time >= heartbeat_interval:
                 heartbeat_event = {

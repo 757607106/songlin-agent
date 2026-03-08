@@ -51,12 +51,7 @@
       </div>
       <div class="search-box">
         <Search :size="16" class="search-icon" />
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="搜索智能体..."
-          class="search-input"
-        />
+        <input v-model="searchQuery" type="text" placeholder="搜索智能体..." class="search-input" />
       </div>
     </div>
 
@@ -217,8 +212,7 @@ const filteredAgents = computed(() => {
   if (searchQuery.value.trim()) {
     const query = searchQuery.value.toLowerCase()
     list = list.filter(
-      (a) =>
-        a.name?.toLowerCase().includes(query) || a.description?.toLowerCase().includes(query)
+      (a) => a.name?.toLowerCase().includes(query) || a.description?.toLowerCase().includes(query)
     )
   }
 

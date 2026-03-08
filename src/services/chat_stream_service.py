@@ -701,6 +701,11 @@ async def stream_agent_chat(
         "agent_config": agent_config,
     }
     dynamic_graph_kwargs = _build_dynamic_graph_kwargs(agent, input_context) if agent_id == "DynamicAgent" else None
+    graph_kwargs = (
+        dynamic_graph_kwargs
+        if dynamic_graph_kwargs is not None
+        else {"user_id": user_id, "department_id": department_id}
+    )
 
     thread_lock = _thread_stream_locks[thread_id]
     if thread_lock.locked():
@@ -824,8 +829,7 @@ async def stream_agent_chat(
                     if blocked_sa_knowledges:
                         blocked_text = ", ".join(blocked_sa_knowledges)
                         logger.warning(
-                            f"用户 {user_id} 子Agent `{sa.get('name')}` "
-                            f"无权访问知识库: {blocked_text}, 已自动过滤"
+                            f"用户 {user_id} 子Agent `{sa.get('name')}` 无权访问知识库: {blocked_text}, 已自动过滤"
                         )
                     sa["knowledges"] = filtered_sa_knowledges
 
@@ -841,10 +845,7 @@ async def stream_agent_chat(
             nonlocal state_graph
             started_at = asyncio.get_event_loop().time()
             if state_graph is None:
-                if dynamic_graph_kwargs is not None:
-                    state_graph = await agent.get_graph(**dynamic_graph_kwargs)
-                else:
-                    state_graph = await agent.get_graph()
+                state_graph = await agent.get_graph(**graph_kwargs)
             state = await state_graph.aget_state(langgraph_config)
             elapsed_ms = (asyncio.get_event_loop().time() - started_at) * 1000
             logger.debug(f"stream_agent_chat: refreshed agent_state snapshot in {elapsed_ms:.1f}ms")
@@ -1019,10 +1020,7 @@ async def stream_agent_chat(
             return
 
         if state_graph is None:
-            if dynamic_graph_kwargs is not None:
-                state_graph = await agent.get_graph(**dynamic_graph_kwargs)
-            else:
-                state_graph = await agent.get_graph()
+            state_graph = await agent.get_graph(**graph_kwargs)
 
         async def _mark_interrupt(_question, _operation):
             await update_thread_runtime_status(
@@ -1300,10 +1298,12 @@ async def stream_agent_resume(
     }
     context = agent._build_runtime_context(input_context)
     dynamic_graph_kwargs = _build_dynamic_graph_kwargs(agent, input_context) if agent_id == "DynamicAgent" else None
-    if dynamic_graph_kwargs is not None:
-        graph = await agent.get_graph(**dynamic_graph_kwargs)
-    else:
-        graph = await agent.get_graph()
+    graph_kwargs = (
+        dynamic_graph_kwargs
+        if dynamic_graph_kwargs is not None
+        else {"user_id": user_id, "department_id": department_id}
+    )
+    graph = await agent.get_graph(**graph_kwargs)
 
     stream_source = graph.astream(
         resume_command,
@@ -1531,7 +1531,7 @@ async def _compute_agent_state_view(
             graph = await agent.get_graph(**dynamic_graph_kwargs)
 
     if graph is None:
-        graph = await agent.get_graph()
+        graph = await agent.get_graph(user_id=str(current_user_id))
     langgraph_config = {"configurable": {"user_id": str(current_user_id), "thread_id": thread_id}}
     state_fetch_started_at = asyncio.get_event_loop().time()
     state = await graph.aget_state(langgraph_config)
