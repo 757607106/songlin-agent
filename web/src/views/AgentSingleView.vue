@@ -12,19 +12,22 @@
       <div class="agent-modal-content">
         <div class="agents-grid">
           <div
-            v-for="agent in agents"
-            :key="agent.id"
+            v-for="agent in selectableAgents"
+            :key="agent._key"
             class="agent-card"
-            :class="{ selected: agent.id === agentId }"
-            @click="selectAgentFromModal(agent.id)"
+            :class="{ selected: isAgentOptionSelected(agent) }"
+            @click="selectAgentFromModal(agent)"
           >
             <div class="agent-card-header">
               <div class="agent-card-title">
                 <span class="agent-card-name">{{ agent.name || 'Unknown' }}</span>
               </div>
-              <StarFilled v-if="agent.id === defaultAgentId" class="default-icon" />
+              <StarFilled
+                v-if="!agent._isCustom && agent.id === defaultAgentId"
+                class="default-icon"
+              />
               <StarOutlined
-                v-else
+                v-else-if="!agent._isCustom"
                 @click.prevent="setAsDefaultAgent(agent.id)"
                 class="default-icon"
               />
@@ -58,7 +61,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Share2, ChevronDown } from 'lucide-vue-next'
@@ -68,7 +71,10 @@ import UserInfoComponent from '@/components/UserInfoComponent.vue'
 import { ChatExporter } from '@/utils/chatExporter'
 import { handleChatError } from '@/utils/errorHandler'
 import { useAgentStore } from '@/stores/agent'
+import { agentApi } from '@/apis/agent_api'
 import { storeToRefs } from 'pinia'
+
+const DYNAMIC_AGENT_ID = 'DynamicAgent'
 
 const route = useRoute()
 const router = useRouter()
@@ -82,9 +88,77 @@ const agentModalOpen = ref(false)
 
 // 从 store 获取智能体数据
 const { agents, defaultAgentId } = storeToRefs(agentStore)
+const customAgentOptions = ref([])
+
+const currentConfigId = computed(() => {
+  const raw = route.query.config_id
+  if (!raw) return null
+  const parsed = Number(raw)
+  return Number.isNaN(parsed) ? null : parsed
+})
+
+const selectableAgents = computed(() => {
+  const builtinAgents = (agents.value || [])
+    .filter((agent) => agent.id !== DYNAMIC_AGENT_ID)
+    .map((agent) => ({
+      ...agent,
+      _isCustom: false,
+      _key: `builtin_${agent.id}`
+    }))
+
+  const customAgents = customAgentOptions.value.map((agent) => ({
+    ...agent,
+    _isCustom: true,
+    _key: `custom_${agent.id}`
+  }))
+
+  return [...builtinAgents, ...customAgents]
+})
+
+const isAgentOptionSelected = (agent) => {
+  if (agent._isCustom) {
+    return agentId.value === DYNAMIC_AGENT_ID && currentConfigId.value === agent.id
+  }
+  return agent.id === agentId.value
+}
+
+const fetchCustomAgentOptions = async () => {
+  try {
+    const configsRes = await agentApi.getAgentConfigs(DYNAMIC_AGENT_ID)
+    const configs = configsRes.configs || []
+    const detailedConfigs = await Promise.all(
+      configs.map((config) =>
+        agentApi
+          .getAgentConfigProfile(DYNAMIC_AGENT_ID, config.id)
+          .then((res) => res.config || res)
+          .catch(() => config)
+      )
+    )
+    customAgentOptions.value = detailedConfigs
+  } catch (error) {
+    console.error('加载自定义智能体列表失败:', error)
+    customAgentOptions.value = []
+  }
+}
+
+const syncConfigByRoute = async () => {
+  if (agentId.value !== DYNAMIC_AGENT_ID || !currentConfigId.value) return
+  try {
+    await agentStore.selectAgent(DYNAMIC_AGENT_ID)
+    await agentStore.selectAgentConfig(currentConfigId.value)
+  } catch (error) {
+    console.error('加载指定配置失败:', error)
+  }
+}
 
 // 当前智能体名称
 const currentAgentName = computed(() => {
+  if (agentId.value === DYNAMIC_AGENT_ID && currentConfigId.value) {
+    const customAgent = customAgentOptions.value.find((item) => item.id === currentConfigId.value)
+    if (customAgent?.name) return customAgent.name
+    return '自定义智能体'
+  }
+
   if (!agentId.value || !agents.value?.length) return '智能体加载中……'
   const agent = agents.value.find((a) => a.id === agentId.value)
   return agent ? agent.name : '未知智能体'
@@ -93,18 +167,30 @@ const currentAgentName = computed(() => {
 // 打开智能体选择弹窗
 const openAgentModal = () => {
   agentModalOpen.value = true
+  void fetchCustomAgentOptions()
 }
 
 // 从弹窗中选择智能体 - 切换路由
-const selectAgentFromModal = (newAgentId) => {
-  if (newAgentId === agentId.value) {
-    // 如果选择的是当前智能体，只需要关闭弹窗
+const selectAgentFromModal = (agent) => {
+  if (agent._isCustom) {
+    if (agentId.value === DYNAMIC_AGENT_ID && currentConfigId.value === agent.id) {
+      agentModalOpen.value = false
+      return
+    }
+    router.push({
+      path: `/agent/${DYNAMIC_AGENT_ID}`,
+      query: { config_id: agent.id }
+    })
     agentModalOpen.value = false
     return
   }
 
-  // 跳转到新的智能体页面
-  router.push(`/agent/${newAgentId}`)
+  if (agent.id === agentId.value) {
+    agentModalOpen.value = false
+    return
+  }
+
+  router.push(`/agent/${agent.id}`)
   agentModalOpen.value = false
 }
 
@@ -156,19 +242,16 @@ onMounted(async () => {
     }
   }
 
-  // 支持从智能体广场跳转时指定 config_id
-  const configId = route.query.config_id
-  if (configId && agentId.value) {
-    try {
-      await agentStore.selectAgent(agentId.value)
-      await agentStore.fetchAgentConfigs(agentId.value)
-      agentStore.selectAgentConfig(Number(configId))
-      await agentStore.loadAgentConfig(agentId.value, Number(configId))
-    } catch (error) {
-      console.error('加载指定配置失败:', error)
-    }
-  }
+  await fetchCustomAgentOptions()
+  await syncConfigByRoute()
 })
+
+watch(
+  () => [route.params.agent_id, route.query.config_id],
+  () => {
+    void syncConfigByRoute()
+  }
+)
 </script>
 
 <style lang="less" scoped>

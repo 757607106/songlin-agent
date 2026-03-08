@@ -1,15 +1,16 @@
 <script setup>
 import { ref, reactive, onMounted, computed, provide } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { GithubOutlined } from '@ant-design/icons-vue'
 import {
   Bot,
+  Users,
   Waypoints,
   LibraryBig,
   BarChart3,
   CircleCheck,
   Database,
-  LayoutGrid
+  LayoutGrid,
+  Activity
 } from 'lucide-vue-next'
 
 import { useConfigStore } from '@/stores/config'
@@ -108,6 +109,12 @@ const mainList = [
     activeIcon: LayoutGrid
   },
   {
+    name: '组队',
+    path: '/team-builder',
+    icon: Users,
+    activeIcon: Users
+  },
+  {
     name: '图谱',
     path: '/graph',
     icon: Waypoints,
@@ -118,6 +125,12 @@ const mainList = [
     path: '/database',
     icon: LibraryBig,
     activeIcon: LibraryBig
+  },
+  {
+    name: '运行',
+    path: '/runtime',
+    icon: Activity,
+    activeIcon: Activity
   },
   {
     name: '数据源',

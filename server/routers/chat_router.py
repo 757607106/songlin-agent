@@ -1,6 +1,10 @@
+import asyncio
+import json
 import textwrap
 import traceback
 import uuid
+from datetime import UTC, datetime
+from time import monotonic
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
@@ -10,9 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.storage.postgres.models_business import User
 from server.routers.auth_router import get_admin_user
 from server.utils.auth_middleware import get_db, get_required_user
-from src import config as conf
+from src import config as conf, knowledge_base
 from src.agents import agent_manager
+from src.agents.common.tools import get_buildin_tools
 from src.models import select_model
+from src.repositories.conversation_repository import ConversationRepository
 from src.services.chat_stream_service import get_agent_state_view, stream_agent_chat, stream_agent_resume
 from src.services.conversation_service import (
     create_thread_view,
@@ -24,6 +30,8 @@ from src.services.conversation_service import (
     upload_thread_attachment_view,
 )
 from src.services.feedback_service import get_message_feedback_view, submit_message_feedback_view
+from src.services.mcp_service import get_mcp_server_names
+from src.services.skill_catalog_service import get_skill_names
 from src.services.history_query_service import get_agent_history_view
 from src.services.task_service import TaskContext, tasker
 from src.services.team_orchestration_service import team_orchestration_service
@@ -101,7 +109,69 @@ class TeamBenchmarkRequest(BaseModel):
     async_task: bool = False
 
 
+class TeamSessionCreateRequest(BaseModel):
+    title: str | None = None
+    message: str | None = None
+    draft: dict | None = None
+    auto_complete: bool = True
+
+
+class TeamSessionMessageRequest(BaseModel):
+    message: str
+    auto_complete: bool = True
+
+
+class TeamSessionDraftUpdateRequest(BaseModel):
+    draft: dict
+    strict: bool = True
+
+
+class TeamSessionCreateProfileRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    set_default: bool = True
+
+
 chat = APIRouter(prefix="/chat", tags=["chat"])
+TEAM_SESSION_TYPE = "team_builder"
+_TEAM_STATIC_RESOURCES_CACHE_TTL_SECONDS = 15.0
+_TEAM_KNOWLEDGE_CACHE_TTL_SECONDS = 10.0
+_team_static_resources_cache: dict[str, object] = {"expires_at": 0.0, "value": None}
+_team_knowledge_cache: dict[str, tuple[float, list[str]]] = {}
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _get_static_team_resources() -> dict[str, list[str]]:
+    now = monotonic()
+    expires_at = float(_team_static_resources_cache.get("expires_at") or 0.0)
+    cached = _team_static_resources_cache.get("value")
+    if now < expires_at and isinstance(cached, dict):
+        return {
+            "tools": list(cached.get("tools") or []),
+            "mcps": list(cached.get("mcps") or []),
+            "skills": list(cached.get("skills") or []),
+        }
+
+    refreshed = {
+        "tools": sorted({tool.name for tool in get_buildin_tools() if getattr(tool, "name", None)}),
+        "mcps": sorted(set(get_mcp_server_names())),
+        "skills": sorted(set(get_skill_names())),
+    }
+    _team_static_resources_cache["value"] = refreshed
+    _team_static_resources_cache["expires_at"] = now + _TEAM_STATIC_RESOURCES_CACHE_TTL_SECONDS
+    return {
+        "tools": list(refreshed["tools"]),
+        "mcps": list(refreshed["mcps"]),
+        "skills": list(refreshed["skills"]),
+    }
+
+
+def _team_knowledge_cache_key(current_user: User) -> str:
+    return f"{current_user.role}:{current_user.department_id or ''}"
+
 
 def _suggest_team_profile_name(team_goal: str, fallback_message: str) -> str:
     source = (team_goal or fallback_message or "").strip()
@@ -110,6 +180,114 @@ def _suggest_team_profile_name(team_goal: str, fallback_message: str) -> str:
     compact = source.replace("：", " ").replace(":", " ").strip()
     compact = compact[:24].strip()
     return compact or "AI自动组建团队"
+
+
+def _ensure_dynamic_agent(agent_id: str, message: str) -> None:
+    if agent_id != "DynamicAgent":
+        raise HTTPException(status_code=422, detail=message)
+
+
+def _ensure_dynamic_or_admin(agent_id: str, current_user: User) -> None:
+    if agent_id == "DynamicAgent":
+        return
+    if current_user.role not in {"admin", "superadmin"}:
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+
+
+async def _build_team_available_resources(current_user: User) -> dict[str, list[str]]:
+    static_resources = _get_static_team_resources()
+
+    knowledge_names: list[str] = []
+    now = monotonic()
+    cache_key = _team_knowledge_cache_key(current_user)
+    cached_knowledge = _team_knowledge_cache.get(cache_key)
+    if cached_knowledge and now < cached_knowledge[0]:
+        knowledge_names = list(cached_knowledge[1])
+    else:
+        user_info = {
+            "role": current_user.role,
+            "department_id": current_user.department_id,
+        }
+        if knowledge_base is not None:
+            try:
+                accessible = await knowledge_base.get_databases_by_user(user_info)
+                knowledge_names = sorted(
+                    {
+                        db.get("name")
+                        for db in (accessible or {}).get("databases", [])
+                        if isinstance(db, dict) and db.get("name")
+                    }
+                )
+                _team_knowledge_cache[cache_key] = (now + _TEAM_KNOWLEDGE_CACHE_TTL_SECONDS, knowledge_names)
+            except Exception as exc:
+                logger.warning(f"Failed to load accessible knowledges for user {current_user.id}: {exc}")
+                if cached_knowledge:
+                    knowledge_names = list(cached_knowledge[1])
+
+    return {
+        "tools": static_resources["tools"],
+        "knowledges": knowledge_names,
+        "mcps": static_resources["mcps"],
+        "skills": static_resources["skills"],
+    }
+
+
+def _build_team_builder_state(result: dict) -> dict:
+    return {
+        "draft": result.get("draft") or {},
+        "validation": result.get("validation") or {},
+        "mode_recommendation": result.get("mode_recommendation") or {},
+        "assembly_meta": result.get("assembly_meta") or {},
+        "resource_validation": result.get("resource_validation") or {},
+        "questions": result.get("questions") or [],
+        "assistant_message": result.get("assistant_message") or "",
+        "is_complete": bool(result.get("is_complete")),
+        "updated_at": _now_iso(),
+    }
+
+
+async def _get_team_session_conversation_or_404(
+    *,
+    conv_repo: ConversationRepository,
+    thread_id: str,
+    current_user: User,
+) -> tuple[object, dict]:
+    conversation = await conv_repo.get_conversation_by_thread_id(thread_id)
+    if not conversation or conversation.user_id != str(current_user.id) or conversation.status == "deleted":
+        raise HTTPException(status_code=404, detail="团队会话不存在")
+
+    metadata = conversation.extra_metadata or {}
+    if metadata.get("session_type") != TEAM_SESSION_TYPE:
+        raise HTTPException(status_code=404, detail="团队会话不存在")
+    if conversation.agent_id != "DynamicAgent":
+        raise HTTPException(status_code=404, detail="团队会话不存在")
+    return conversation, metadata
+
+
+def _serialize_team_history(messages: list[object]) -> list[dict]:
+    history: list[dict] = []
+    for item in messages:
+        role = getattr(item, "role", "")
+        content = getattr(item, "content", "")
+        created_at = getattr(item, "created_at", None)
+        history.append(
+            {
+                "role": role,
+                "content": content,
+                "created_at": created_at.isoformat() if created_at else None,
+            }
+        )
+    return history
+
+
+def _team_stream_chunk(payload: dict) -> str:
+    return json.dumps(payload, ensure_ascii=False) + "\n"
+
+
+def _split_stream_text(text: str, chunk_size: int = 24) -> list[str]:
+    if not text:
+        return []
+    return [text[i : i + chunk_size] for i in range(0, len(text), chunk_size)]
 
 
 # =============================================================================
@@ -346,7 +524,7 @@ async def get_agent_config_profile(
 async def create_agent_config_profile(
     agent_id: str,
     payload: AgentConfigCreate,
-    current_user: User = Depends(get_admin_user),
+    current_user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db),
 ):
     if not current_user.department_id:
@@ -354,6 +532,7 @@ async def create_agent_config_profile(
 
     if not agent_manager.get_agent(agent_id):
         raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    _ensure_dynamic_or_admin(agent_id, current_user)
 
     repo = AgentConfigRepository(db)
     item = await repo.create(
@@ -379,7 +558,7 @@ async def update_agent_config_profile(
     agent_id: str,
     config_id: int,
     payload: AgentConfigUpdate,
-    current_user: User = Depends(get_admin_user),
+    current_user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db),
 ):
     if not current_user.department_id:
@@ -387,6 +566,7 @@ async def update_agent_config_profile(
 
     if not agent_manager.get_agent(agent_id):
         raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    _ensure_dynamic_or_admin(agent_id, current_user)
 
     repo = AgentConfigRepository(db)
     item = await repo.get_by_id(config_id)
@@ -410,7 +590,7 @@ async def update_agent_config_profile(
 async def set_agent_config_default(
     agent_id: str,
     config_id: int,
-    current_user: User = Depends(get_admin_user),
+    current_user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db),
 ):
     if not current_user.department_id:
@@ -418,6 +598,7 @@ async def set_agent_config_default(
 
     if not agent_manager.get_agent(agent_id):
         raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    _ensure_dynamic_or_admin(agent_id, current_user)
 
     repo = AgentConfigRepository(db)
     item = await repo.get_by_id(config_id)
@@ -432,7 +613,7 @@ async def set_agent_config_default(
 async def delete_agent_config_profile(
     agent_id: str,
     config_id: int,
-    current_user: User = Depends(get_admin_user),
+    current_user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db),
 ):
     if not current_user.department_id:
@@ -440,6 +621,7 @@ async def delete_agent_config_profile(
 
     if not agent_manager.get_agent(agent_id):
         raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    _ensure_dynamic_or_admin(agent_id, current_user)
 
     repo = AgentConfigRepository(db)
     item = await repo.get_by_id(config_id)
@@ -458,13 +640,14 @@ async def team_wizard_step(
 ):
     if not agent_manager.get_agent(agent_id):
         raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
-    if agent_id != "DynamicAgent":
-        raise HTTPException(status_code=422, detail="团队创建仅支持 DynamicAgent")
+    _ensure_dynamic_agent(agent_id, "团队创建仅支持 DynamicAgent")
+    available_resources = await _build_team_available_resources(current_user)
 
     return await team_orchestration_service.wizard_step_with_ai(
         payload.message,
         payload.draft,
         auto_complete=payload.auto_complete,
+        available_resources=available_resources,
     )
 
 
@@ -476,27 +659,41 @@ async def validate_team_config(
 ):
     if not agent_manager.get_agent(agent_id):
         raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
-    if agent_id != "DynamicAgent":
-        raise HTTPException(status_code=422, detail="团队校验仅支持 DynamicAgent")
+    _ensure_dynamic_agent(agent_id, "团队校验仅支持 DynamicAgent")
+    available_resources = await _build_team_available_resources(current_user)
 
-    return team_orchestration_service.validate_team(payload.team, strict=payload.strict)
+    return team_orchestration_service.validate_team(
+        payload.team,
+        strict=payload.strict,
+        available_resources=available_resources,
+    )
 
 
 @chat.post("/agent/{agent_id}/team/create")
 async def create_team_profile(
     agent_id: str,
     payload: TeamCreateRequest,
-    current_user: User = Depends(get_admin_user),
+    current_user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db),
 ):
     if not current_user.department_id:
         raise HTTPException(status_code=400, detail="当前用户未绑定部门")
     if not agent_manager.get_agent(agent_id):
         raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
-    if agent_id != "DynamicAgent":
-        raise HTTPException(status_code=422, detail="团队创建仅支持 DynamicAgent")
+    _ensure_dynamic_agent(agent_id, "团队创建仅支持 DynamicAgent")
+    _ensure_dynamic_or_admin(agent_id, current_user)
+    available_resources = await _build_team_available_resources(current_user)
 
-    runtime_context = team_orchestration_service.build_runtime_context(payload.team, strict=True)
+    runtime_context = team_orchestration_service.build_runtime_context(
+        payload.team,
+        strict=True,
+        available_resources=available_resources,
+        assembly_meta={
+            "pipeline": "direct_create_request",
+            "status": "provided_by_user",
+            "attempts": [],
+        },
+    )
 
     repo = AgentConfigRepository(db)
     item = await repo.create(
@@ -511,27 +708,35 @@ async def create_team_profile(
     if payload.set_default:
         item = await repo.set_default(config=item, updated_by=str(current_user.id))
 
-    return {"config": item.to_dict(), "team_validation": team_orchestration_service.validate_team(payload.team)}
+    return {
+        "config": item.to_dict(),
+        "team_validation": team_orchestration_service.validate_team(
+            payload.team,
+            available_resources=available_resources,
+        ),
+    }
 
 
 @chat.post("/agent/{agent_id}/team/auto-create")
 async def auto_create_team_profile(
     agent_id: str,
     payload: TeamAutoCreateRequest,
-    current_user: User = Depends(get_admin_user),
+    current_user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db),
 ):
     if not current_user.department_id:
         raise HTTPException(status_code=400, detail="当前用户未绑定部门")
     if not agent_manager.get_agent(agent_id):
         raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
-    if agent_id != "DynamicAgent":
-        raise HTTPException(status_code=422, detail="团队自动创建仅支持 DynamicAgent")
+    _ensure_dynamic_agent(agent_id, "团队自动创建仅支持 DynamicAgent")
+    _ensure_dynamic_or_admin(agent_id, current_user)
+    available_resources = await _build_team_available_resources(current_user)
 
     wizard = await team_orchestration_service.wizard_step_with_ai(
         payload.message,
         draft=None,
         auto_complete=payload.auto_complete,
+        available_resources=available_resources,
     )
     draft = wizard.get("draft") or {}
     if not wizard.get("is_complete"):
@@ -545,7 +750,13 @@ async def auto_create_team_profile(
             },
         )
 
-    runtime_context = team_orchestration_service.build_runtime_context(draft, strict=True)
+    runtime_context = team_orchestration_service.build_runtime_context(
+        draft,
+        strict=True,
+        available_resources=available_resources,
+        assembly_meta=wizard.get("assembly_meta") or {},
+        mode_recommendation=wizard.get("mode_recommendation") or {},
+    )
     profile_name = payload.name or _suggest_team_profile_name(runtime_context.get("team_goal", ""), payload.message)
     profile_desc = payload.description or runtime_context.get("task_scope") or runtime_context.get("team_goal")
 
@@ -565,7 +776,464 @@ async def auto_create_team_profile(
     return {
         "config": item.to_dict(),
         "wizard": wizard,
-        "team_validation": team_orchestration_service.validate_team(draft, strict=True),
+        "team_validation": team_orchestration_service.validate_team(
+            draft,
+            strict=True,
+            available_resources=available_resources,
+        ),
+    }
+
+
+@chat.post("/agent/{agent_id}/team/session")
+async def create_team_session(
+    agent_id: str,
+    payload: TeamSessionCreateRequest,
+    current_user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not current_user.department_id:
+        raise HTTPException(status_code=400, detail="当前用户未绑定部门")
+    if not agent_manager.get_agent(agent_id):
+        raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    _ensure_dynamic_agent(agent_id, "团队会话仅支持 DynamicAgent")
+
+    available_resources = await _build_team_available_resources(current_user)
+    conv_repo = ConversationRepository(db)
+
+    if payload.message and payload.message.strip():
+        wizard = await team_orchestration_service.wizard_step_with_ai(
+            payload.message.strip(),
+            payload.draft,
+            auto_complete=payload.auto_complete,
+            available_resources=available_resources,
+        )
+    else:
+        wizard = team_orchestration_service.wizard_step(
+            "",
+            payload.draft,
+            available_resources=available_resources,
+        )
+
+    team_builder_state = _build_team_builder_state(wizard)
+    title = payload.title or (team_builder_state["draft"].get("team_goal") or "团队组建会话")
+    conversation = await conv_repo.create_conversation(
+        user_id=str(current_user.id),
+        agent_id=agent_id,
+        title=title,
+        metadata={
+            "session_type": TEAM_SESSION_TYPE,
+            "team_builder": team_builder_state,
+        },
+    )
+
+    if payload.message and payload.message.strip():
+        await conv_repo.add_message_by_thread_id(
+            thread_id=conversation.thread_id,
+            role="user",
+            content=payload.message.strip(),
+            message_type="text",
+            extra_metadata={"session_type": TEAM_SESSION_TYPE},
+        )
+        assistant_message = team_builder_state.get("assistant_message") or ""
+        if assistant_message:
+            await conv_repo.add_message_by_thread_id(
+                thread_id=conversation.thread_id,
+                role="assistant",
+                content=assistant_message,
+                message_type="text",
+                extra_metadata={"session_type": TEAM_SESSION_TYPE},
+            )
+
+    history = await conv_repo.get_messages_by_thread_id(conversation.thread_id)
+    return {
+        "thread_id": conversation.thread_id,
+        "title": conversation.title,
+        "team_builder": team_builder_state,
+        "history": _serialize_team_history(history),
+        "created_at": conversation.created_at.isoformat() if conversation.created_at else None,
+        "updated_at": conversation.updated_at.isoformat() if conversation.updated_at else None,
+    }
+
+
+@chat.get("/agent/{agent_id}/team/sessions")
+async def list_team_sessions(
+    agent_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    current_user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not agent_manager.get_agent(agent_id):
+        raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    _ensure_dynamic_agent(agent_id, "团队会话仅支持 DynamicAgent")
+
+    conv_repo = ConversationRepository(db)
+    conversations = await conv_repo.list_conversations(
+        user_id=str(current_user.id),
+        agent_id=agent_id,
+        status="active",
+        limit=max(limit + 40, 80),
+        offset=0,
+    )
+    sessions = []
+    for conv in conversations:
+        metadata = conv.extra_metadata or {}
+        if metadata.get("session_type") != TEAM_SESSION_TYPE:
+            continue
+        team_builder = metadata.get("team_builder") or {}
+        sessions.append(
+            {
+                "thread_id": conv.thread_id,
+                "title": conv.title,
+                "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
+                "created_at": conv.created_at.isoformat() if conv.created_at else None,
+                "team_builder": team_builder,
+            }
+        )
+
+    return {"sessions": sessions[offset : offset + limit]}
+
+
+@chat.get("/agent/{agent_id}/team/session/{thread_id}")
+async def get_team_session(
+    agent_id: str,
+    thread_id: str,
+    current_user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not agent_manager.get_agent(agent_id):
+        raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    _ensure_dynamic_agent(agent_id, "团队会话仅支持 DynamicAgent")
+
+    conv_repo = ConversationRepository(db)
+    conversation, metadata = await _get_team_session_conversation_or_404(
+        conv_repo=conv_repo,
+        thread_id=thread_id,
+        current_user=current_user,
+    )
+    history = await conv_repo.get_messages_by_thread_id(thread_id)
+    return {
+        "thread_id": thread_id,
+        "title": conversation.title,
+        "team_builder": metadata.get("team_builder") or {},
+        "history": _serialize_team_history(history),
+        "created_at": conversation.created_at.isoformat() if conversation.created_at else None,
+        "updated_at": conversation.updated_at.isoformat() if conversation.updated_at else None,
+    }
+
+
+@chat.post("/agent/{agent_id}/team/session/{thread_id}/message")
+async def send_team_session_message(
+    agent_id: str,
+    thread_id: str,
+    payload: TeamSessionMessageRequest,
+    current_user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not payload.message or not payload.message.strip():
+        raise HTTPException(status_code=422, detail="message 不能为空")
+    if not agent_manager.get_agent(agent_id):
+        raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    _ensure_dynamic_agent(agent_id, "团队会话仅支持 DynamicAgent")
+
+    conv_repo = ConversationRepository(db)
+    conversation, metadata = await _get_team_session_conversation_or_404(
+        conv_repo=conv_repo,
+        thread_id=thread_id,
+        current_user=current_user,
+    )
+
+    available_resources = await _build_team_available_resources(current_user)
+    current_state = metadata.get("team_builder") or {}
+    current_draft = current_state.get("draft") or {}
+    wizard = await team_orchestration_service.wizard_step_with_ai(
+        payload.message.strip(),
+        current_draft,
+        auto_complete=payload.auto_complete,
+        available_resources=available_resources,
+    )
+    team_builder_state = _build_team_builder_state(wizard)
+
+    await conv_repo.add_message_by_thread_id(
+        thread_id=thread_id,
+        role="user",
+        content=payload.message.strip(),
+        message_type="text",
+        extra_metadata={"session_type": TEAM_SESSION_TYPE},
+    )
+    assistant_message = team_builder_state.get("assistant_message") or ""
+    if assistant_message:
+        await conv_repo.add_message_by_thread_id(
+            thread_id=thread_id,
+            role="assistant",
+            content=assistant_message,
+            message_type="text",
+            extra_metadata={"session_type": TEAM_SESSION_TYPE},
+        )
+
+    updated = await conv_repo.update_conversation(
+        thread_id=thread_id,
+        metadata={
+            "session_type": TEAM_SESSION_TYPE,
+            "team_builder": team_builder_state,
+        },
+    )
+
+    history = await conv_repo.get_messages_by_thread_id(thread_id)
+    return {
+        "thread_id": thread_id,
+        "title": (updated or conversation).title,
+        "team_builder": team_builder_state,
+        "history": _serialize_team_history(history),
+        "updated_at": (
+            (updated or conversation).updated_at.isoformat() if (updated or conversation).updated_at else None
+        ),
+    }
+
+
+@chat.post("/agent/{agent_id}/team/session/{thread_id}/message/stream")
+async def stream_team_session_message(
+    agent_id: str,
+    thread_id: str,
+    payload: TeamSessionMessageRequest,
+    current_user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not payload.message or not payload.message.strip():
+        raise HTTPException(status_code=422, detail="message 不能为空")
+    if not agent_manager.get_agent(agent_id):
+        raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    _ensure_dynamic_agent(agent_id, "团队会话仅支持 DynamicAgent")
+
+    conv_repo = ConversationRepository(db)
+    conversation, metadata = await _get_team_session_conversation_or_404(
+        conv_repo=conv_repo,
+        thread_id=thread_id,
+        current_user=current_user,
+    )
+    available_resources = await _build_team_available_resources(current_user)
+    request_id = str(uuid.uuid4())
+    assistant_msg_id = f"{request_id}-assistant"
+
+    async def generate():
+        try:
+            current_state = metadata.get("team_builder") or {}
+            current_draft = current_state.get("draft") or {}
+            wizard = await team_orchestration_service.wizard_step_with_ai(
+                payload.message.strip(),
+                current_draft,
+                auto_complete=payload.auto_complete,
+                available_resources=available_resources,
+            )
+            team_builder_state = _build_team_builder_state(wizard)
+
+            yield _team_stream_chunk(
+                {
+                    "status": "init",
+                    "request_id": request_id,
+                    "thread_id": thread_id,
+                }
+            )
+
+            assistant_message = team_builder_state.get("assistant_message") or ""
+            for part in _split_stream_text(assistant_message):
+                yield _team_stream_chunk(
+                    {
+                        "status": "loading",
+                        "request_id": request_id,
+                        "thread_id": thread_id,
+                        "msg": {
+                            "type": "AIMessageChunk",
+                            "id": assistant_msg_id,
+                            "content": part,
+                        },
+                    }
+                )
+                await asyncio.sleep(0.01)
+
+            await conv_repo.add_message_by_thread_id(
+                thread_id=thread_id,
+                role="user",
+                content=payload.message.strip(),
+                message_type="text",
+                extra_metadata={"session_type": TEAM_SESSION_TYPE},
+            )
+            if assistant_message:
+                await conv_repo.add_message_by_thread_id(
+                    thread_id=thread_id,
+                    role="assistant",
+                    content=assistant_message,
+                    message_type="text",
+                    extra_metadata={"session_type": TEAM_SESSION_TYPE},
+                )
+
+            updated = await conv_repo.update_conversation(
+                thread_id=thread_id,
+                metadata={
+                    "session_type": TEAM_SESSION_TYPE,
+                    "team_builder": team_builder_state,
+                },
+            )
+
+            yield _team_stream_chunk(
+                {
+                    "status": "finished",
+                    "request_id": request_id,
+                    "thread_id": thread_id,
+                    "title": (updated or conversation).title,
+                    "team_builder": team_builder_state,
+                    "updated_at": (updated or conversation).updated_at.isoformat()
+                    if (updated or conversation).updated_at
+                    else None,
+                }
+            )
+        except asyncio.CancelledError:
+            logger.info(f"Team session stream cancelled: thread_id={thread_id}, request_id={request_id}")
+            raise
+        except Exception as exc:
+            logger.error(f"Team session stream failed: {exc}")
+            logger.error(traceback.format_exc())
+            yield _team_stream_chunk(
+                {
+                    "status": "error",
+                    "request_id": request_id,
+                    "thread_id": thread_id,
+                    "message": str(exc),
+                }
+            )
+
+    return StreamingResponse(generate(), media_type="application/json")
+
+
+@chat.put("/agent/{agent_id}/team/session/{thread_id}/draft")
+async def update_team_session_draft(
+    agent_id: str,
+    thread_id: str,
+    payload: TeamSessionDraftUpdateRequest,
+    current_user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not agent_manager.get_agent(agent_id):
+        raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    _ensure_dynamic_agent(agent_id, "团队会话仅支持 DynamicAgent")
+
+    conv_repo = ConversationRepository(db)
+    _, _ = await _get_team_session_conversation_or_404(
+        conv_repo=conv_repo,
+        thread_id=thread_id,
+        current_user=current_user,
+    )
+    available_resources = await _build_team_available_resources(current_user)
+    wizard = team_orchestration_service.wizard_step(
+        "",
+        payload.draft,
+        available_resources=available_resources,
+    )
+    team_builder_state = _build_team_builder_state(wizard)
+    if payload.strict:
+        strict_validation = team_orchestration_service.validate_team(
+            payload.draft,
+            strict=True,
+            available_resources=available_resources,
+        )
+        if not strict_validation["valid"]:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "团队草稿不满足严格校验",
+                    "validation": strict_validation,
+                },
+            )
+        team_builder_state["validation"] = strict_validation
+        team_builder_state["resource_validation"] = strict_validation.get("resource_validation") or {}
+
+    updated = await conv_repo.update_conversation(
+        thread_id=thread_id,
+        metadata={
+            "session_type": TEAM_SESSION_TYPE,
+            "team_builder": team_builder_state,
+        },
+    )
+
+    return {
+        "thread_id": thread_id,
+        "title": updated.title if updated else "",
+        "team_builder": team_builder_state,
+        "updated_at": updated.updated_at.isoformat() if updated and updated.updated_at else None,
+    }
+
+
+@chat.post("/agent/{agent_id}/team/session/{thread_id}/create")
+async def create_team_profile_from_session(
+    agent_id: str,
+    thread_id: str,
+    payload: TeamSessionCreateProfileRequest,
+    current_user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not current_user.department_id:
+        raise HTTPException(status_code=400, detail="当前用户未绑定部门")
+    if not agent_manager.get_agent(agent_id):
+        raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
+    _ensure_dynamic_agent(agent_id, "团队会话仅支持 DynamicAgent")
+    _ensure_dynamic_or_admin(agent_id, current_user)
+
+    conv_repo = ConversationRepository(db)
+    conversation, metadata = await _get_team_session_conversation_or_404(
+        conv_repo=conv_repo,
+        thread_id=thread_id,
+        current_user=current_user,
+    )
+    team_builder_state = metadata.get("team_builder") or {}
+    draft = team_builder_state.get("draft") or {}
+    available_resources = await _build_team_available_resources(current_user)
+    runtime_context = team_orchestration_service.build_runtime_context(
+        draft,
+        strict=True,
+        available_resources=available_resources,
+        assembly_meta=team_builder_state.get("assembly_meta") or {},
+        mode_recommendation=team_builder_state.get("mode_recommendation") or {},
+    )
+    validation = team_orchestration_service.validate_team(
+        draft,
+        strict=True,
+        available_resources=available_resources,
+    )
+
+    profile_name = payload.name or _suggest_team_profile_name(
+        runtime_context.get("team_goal", ""),
+        conversation.title or "团队组建会话",
+    )
+    profile_desc = payload.description or runtime_context.get("task_scope") or runtime_context.get("team_goal")
+
+    repo = AgentConfigRepository(db)
+    item = await repo.create(
+        department_id=current_user.department_id,
+        agent_id=agent_id,
+        name=profile_name,
+        description=profile_desc,
+        config_json={"context": runtime_context},
+        is_default=payload.set_default,
+        created_by=str(current_user.id),
+    )
+    if payload.set_default:
+        item = await repo.set_default(config=item, updated_by=str(current_user.id))
+
+    team_builder_state["last_created_config_id"] = item.id
+    team_builder_state["updated_at"] = _now_iso()
+    await conv_repo.update_conversation(
+        thread_id=thread_id,
+        metadata={
+            "session_type": TEAM_SESSION_TYPE,
+            "team_builder": team_builder_state,
+        },
+    )
+
+    return {
+        "config": item.to_dict(),
+        "team_validation": validation,
+        "thread_id": thread_id,
+        "team_builder": team_builder_state,
     }
 
 
@@ -626,6 +1294,7 @@ async def chat_agent(
     query: str = Body(...),
     config: dict = Body({}),
     meta: dict = Body({}),
+    run_id: str | None = Body(None),
     image_content: str | None = Body(None),
     current_user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db),
@@ -649,6 +1318,7 @@ async def chat_agent(
             "thread_id": config.get("thread_id"),
             "user_id": current_user.id,
             "has_image": bool(image_content),
+            "run_id": run_id or meta.get("run_id") or config.get("run_id"),
         }
     )
     return StreamingResponse(
@@ -690,6 +1360,7 @@ async def update_chat_models(model_provider: str, model_names: list[str], curren
 async def resume_agent_chat(
     agent_id: str,
     thread_id: str = Body(...),
+    run_id: str | None = Body(None),
     approved: bool | None = Body(default=None),
     decision: str | None = Body(default=None),
     edited_text: str | None = Body(default=None),
@@ -721,6 +1392,7 @@ async def resume_agent_chat(
     meta = {
         "agent_id": agent_id,
         "thread_id": thread_id,
+        "run_id": run_id or config.get("run_id"),
         "user_id": current_user.id,
         "approved": approved,
         "decision": normalized_decision,
@@ -883,6 +1555,7 @@ class ThreadResponse(BaseModel):
     title: str | None = None
     last_message: str = ""
     runtime_status: str = "idle"
+    current_run_id: str | None = None
     status_updated_at: str | None = None
     has_interrupt: bool = False
     is_loading: bool = False

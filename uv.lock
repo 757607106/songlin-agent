@@ -1801,6 +1801,20 @@ wheels = [
 ]
 
 [[package]]
+name = "langgraph-swarm"
+version = "0.1.0"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+dependencies = [
+    { name = "langchain" },
+    { name = "langchain-core" },
+    { name = "langgraph" },
+]
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/89/9c/b76ce5eb38584097e671464632fdb854ab28457dd9e8ec3912f7208a1d9a/langgraph_swarm-0.1.0.tar.gz", hash = "sha256:e0f189fc2471d06108fc293da05771d0106d72f755cd130ee37d579561942479", size = 12432, upload-time = "2025-12-04T19:04:05.56Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/49/1f/a2fd04e6ba6f34609ae37a290b198f37155516ed67e34c12948c5a742437/langgraph_swarm-0.1.0-py3-none-any.whl", hash = "sha256:7020b9a1ba6959b8ddd0168e49b236e8f9967ea40a8a2ccd14c28ec57fe6c227", size = 10227, upload-time = "2025-12-04T19:04:04.72Z" },
+]
+
+[[package]]
 name = "langsmith"
 version = "0.6.4"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -5018,6 +5032,7 @@ dependencies = [
     { name = "langgraph-checkpoint-postgres" },
     { name = "langgraph-cli", extra = ["inmem"] },
     { name = "langgraph-supervisor" },
+    { name = "langgraph-swarm" },
     { name = "langsmith" },
     { name = "lightrag-hku" },
     { name = "llama-index" },
@@ -5098,6 +5113,7 @@ requires-dist = [
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.0" },
     { name = "langgraph-cli", extras = ["inmem"], specifier = ">=0.4" },
     { name = "langgraph-supervisor" },
+    { name = "langgraph-swarm", specifier = ">=0.0.4" },
     { name = "langsmith", specifier = ">=0.4" },
     { name = "lightrag-hku", specifier = ">=1.4.6" },
     { name = "llama-index", specifier = ">=0.14" },

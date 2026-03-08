@@ -17,7 +17,8 @@ export function useApproval({ getThreadState, resetOnGoingConv, fetchThreadMessa
     decision,
     currentAgentId,
     agentConfigId = null,
-    editedText = ''
+    editedText = '',
+    runId = null
   ) => {
     const threadId = approvalState.threadId
     if (!threadId) {
@@ -50,6 +51,7 @@ export function useApproval({ getThreadState, resetOnGoingConv, fetchThreadMessa
         currentAgentId,
         {
           thread_id: threadId,
+          run_id: runId || undefined,
           decision,
           approved: decision === 'approve',
           edited_text: decision === 'edit' ? editedText : undefined,

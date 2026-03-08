@@ -4,6 +4,7 @@ import datetime as dt
 from typing import Any, cast
 
 from sqlalchemy import (
+    BigInteger,
     JSON,
     Boolean,
     Column,
@@ -529,3 +530,154 @@ class TaskRecord(Base):
         data.pop("payload", None)
         data.pop("result", None)
         return data
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+
+    run_id = Column(String(64), primary_key=True)
+    parent_run_id = Column(String(64), ForeignKey("agent_runs.run_id"), nullable=True, index=True)
+    thread_id = Column(String(64), nullable=False, index=True)
+    conversation_id = Column(Integer, nullable=True, index=True)
+    request_id = Column(String(64), nullable=True, index=True)
+    idempotency_key = Column(String(128), nullable=False)
+    mode = Column(String(32), nullable=False, default="hybrid")
+    agent_id = Column(String(128), nullable=False, index=True)
+    status = Column(String(32), nullable=False, default="queued", index=True)
+    input_payload = Column(JSON, nullable=False, default=dict)
+    output_payload = Column(JSON, nullable=True)
+    error_payload = Column(JSON, nullable=True)
+    attempt = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=1)
+    lease_owner = Column(String(128), nullable=True, index=True)
+    lease_until = Column(DateTime, nullable=True, index=True)
+    cancel_requested = Column(Boolean, nullable=False, default=False)
+    paused_reason = Column(Text, nullable=True)
+    created_by = Column(String(64), nullable=True, index=True)
+    created_at = Column(DateTime, default=utc_now_naive, index=True)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+
+    events = relationship("RunEvent", back_populates="run", cascade="all, delete-orphan")
+    artifacts = relationship("RunArtifact", back_populates="run", cascade="all, delete-orphan")
+
+    __table_args__ = (UniqueConstraint("thread_id", "idempotency_key", name="uq_agent_runs_thread_idem"),)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "run_id": self.run_id,
+            "parent_run_id": self.parent_run_id,
+            "thread_id": self.thread_id,
+            "conversation_id": self.conversation_id,
+            "request_id": self.request_id,
+            "idempotency_key": self.idempotency_key,
+            "mode": self.mode,
+            "agent_id": self.agent_id,
+            "status": self.status,
+            "input_payload": self.input_payload or {},
+            "output_payload": self.output_payload,
+            "error_payload": self.error_payload,
+            "attempt": self.attempt,
+            "max_attempts": self.max_attempts,
+            "lease_owner": self.lease_owner,
+            "lease_until": _format_dt(self.lease_until),
+            "cancel_requested": bool(self.cancel_requested),
+            "paused_reason": self.paused_reason,
+            "created_by": self.created_by,
+            "created_at": _format_dt(self.created_at),
+            "updated_at": _format_dt(self.updated_at),
+            "started_at": _format_dt(self.started_at),
+            "finished_at": _format_dt(self.finished_at),
+        }
+
+
+class RunEvent(Base):
+    __tablename__ = "run_events"
+
+    event_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    run_id = Column(String(64), ForeignKey("agent_runs.run_id"), nullable=False, index=True)
+    seq = Column(BigInteger, nullable=False)
+    event_type = Column(String(64), nullable=False, index=True)
+    actor_type = Column(String(32), nullable=False, default="system")
+    actor_name = Column(String(128), nullable=True)
+    span_id = Column(String(64), nullable=True)
+    parent_span_id = Column(String(64), nullable=True)
+    event_ts = Column(DateTime, default=utc_now_naive, index=True)
+    event_payload = Column(JSON, nullable=False, default=dict)
+
+    run = relationship("AgentRun", back_populates="events")
+
+    __table_args__ = (UniqueConstraint("run_id", "seq", name="uq_run_events_run_seq"),)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "event_id": self.event_id,
+            "run_id": self.run_id,
+            "seq": self.seq,
+            "event_type": self.event_type,
+            "actor_type": self.actor_type,
+            "actor_name": self.actor_name,
+            "span_id": self.span_id,
+            "parent_span_id": self.parent_span_id,
+            "event_ts": _format_dt(self.event_ts),
+            "event_payload": self.event_payload or {},
+        }
+
+
+class RunArtifact(Base):
+    __tablename__ = "run_artifacts"
+
+    artifact_id = Column(String(64), primary_key=True)
+    run_id = Column(String(64), ForeignKey("agent_runs.run_id"), nullable=False, index=True)
+    thread_id = Column(String(64), nullable=False, index=True)
+    path = Column(Text, nullable=False)
+    storage_backend = Column(String(32), nullable=False, default="state")
+    object_key = Column(Text, nullable=False)
+    mime_type = Column(String(128), nullable=True)
+    size_bytes = Column(BigInteger, nullable=True)
+    checksum = Column(String(128), nullable=True)
+    created_by_agent = Column(String(128), nullable=True)
+    created_at = Column(DateTime, default=utc_now_naive, index=True)
+
+    run = relationship("AgentRun", back_populates="artifacts")
+
+    __table_args__ = (UniqueConstraint("run_id", "path", name="uq_run_artifacts_run_path"),)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "artifact_id": self.artifact_id,
+            "run_id": self.run_id,
+            "thread_id": self.thread_id,
+            "path": self.path,
+            "storage_backend": self.storage_backend,
+            "object_key": self.object_key,
+            "mime_type": self.mime_type,
+            "size_bytes": self.size_bytes,
+            "checksum": self.checksum,
+            "created_by_agent": self.created_by_agent,
+            "created_at": _format_dt(self.created_at),
+        }
+
+
+class IdempotencyRecord(Base):
+    __tablename__ = "idempotency_records"
+
+    scope = Column(String(64), primary_key=True)
+    idem_key = Column(String(128), primary_key=True)
+    request_hash = Column(String(128), nullable=False)
+    run_id = Column(String(64), nullable=True, index=True)
+    response_payload = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=utc_now_naive, index=True)
+    expires_at = Column(DateTime, nullable=True)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "scope": self.scope,
+            "idem_key": self.idem_key,
+            "request_hash": self.request_hash,
+            "run_id": self.run_id,
+            "response_payload": self.response_payload,
+            "created_at": _format_dt(self.created_at),
+            "expires_at": _format_dt(self.expires_at),
+        }

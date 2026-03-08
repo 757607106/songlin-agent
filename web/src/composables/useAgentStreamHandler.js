@@ -80,9 +80,14 @@ export function useAgentStreamHandler({
     const threadState = getThreadState(threadId)
 
     if (!threadState) return false
+    const streamRunId = chunk?.run_id || chunk?.meta?.run_id
+    if (streamRunId) {
+      threadState.currentRunId = streamRunId
+    }
 
     switch (status) {
       case 'init':
+        threadState.onGoingConv.currentRequestKey = request_id || null
         threadState.onGoingConv.msgChunks[request_id] = [msg]
         return false
 

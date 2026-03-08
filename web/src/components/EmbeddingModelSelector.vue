@@ -4,7 +4,7 @@
     :size="size"
     :value="value"
     @change="handleSelect"
-    @dropdownVisibleChange="checkAllModelStatus"
+    @dropdownVisibleChange="checkCurrentModelStatus"
     :placeholder="placeholder"
     :disabled="disabled"
   >
@@ -81,16 +81,24 @@ const embedModelChoices = computed(() => {
   return Object.keys(configStore?.config?.embed_model_names || {}) || []
 })
 
-// 检查所有embedding模型状态
-const checkAllModelStatus = async () => {
+// 仅检查当前选中的 embedding 模型状态，避免批量探测本地模型服务
+const checkCurrentModelStatus = async (open) => {
+  if (!open) return
+
+  const currentModelId = props.value || configStore?.config?.embed_model
+  if (!currentModelId) return
+
   try {
     state.checkingStatus = true
-    const response = await embeddingApi.getAllModelsStatus()
-    if (response.status.models) {
-      state.modelStatuses = response.status.models
+    const response = await embeddingApi.getModelStatus(currentModelId)
+    if (response.status) {
+      state.modelStatuses = {
+        ...state.modelStatuses,
+        [currentModelId]: response.status
+      }
     }
   } catch (error) {
-    console.error('检查所有模型状态失败:', error)
+    console.error('检查当前模型状态失败:', error)
     message.error('获取模型状态失败')
   } finally {
     state.checkingStatus = false

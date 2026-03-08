@@ -4,6 +4,7 @@ import importlib
 import importlib.util
 import inspect
 import os
+import time
 import tomllib as tomli
 import uuid
 from abc import abstractmethod
@@ -85,6 +86,10 @@ class BaseAgent:
             "recursion_limit": 300,
         }
 
+        # 心跳配置
+        heartbeat_interval = kwargs.get("heartbeat_interval", 30)  # 默认 30 秒
+        last_event_time = time.time()
+
         # 使用多模式流式 + subgraphs=True 来获取子 Agent 执行过程
         # 实际格式: (namespace, mode, data) — 3-tuple
         async for item in graph.astream(
@@ -94,6 +99,8 @@ class BaseAgent:
             config=input_config,
             subgraphs=True,
         ):
+            current_time = time.time()
+            
             # graph.astream with subgraphs=True + multi-mode returns 3-tuples
             namespace, mode, data = item[0], item[1], item[2]
 
@@ -114,6 +121,7 @@ class BaseAgent:
                 enriched_metadata["is_subagent"] = is_subagent
                 enriched_metadata["subagent_name"] = subagent_name
                 enriched_metadata["namespace"] = list(namespace) if namespace else []
+                last_event_time = current_time
                 yield msg, enriched_metadata
             elif mode == "updates":
                 # 发送状态更新事件（包含子 Agent 步骤信息）
@@ -125,7 +133,18 @@ class BaseAgent:
                     "nodes": list(data.keys()) if isinstance(data, dict) else [],
                     "data": data,
                 }
+                last_event_time = current_time
                 yield update_event, {"mode": "updates"}
+            
+            # 检查是否需要发送心跳
+            if current_time - last_event_time >= heartbeat_interval:
+                heartbeat_event = {
+                    "type": "heartbeat",
+                    "timestamp": current_time,
+                    "message": "Processing...",
+                }
+                last_event_time = current_time
+                yield heartbeat_event, {"mode": "heartbeat"}
 
     async def invoke_messages(self, messages: list[str], input_context=None, **kwargs):
         graph = await self.get_graph()

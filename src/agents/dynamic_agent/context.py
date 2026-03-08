@@ -8,9 +8,10 @@ from dataclasses import dataclass, field
 from typing import Annotated
 
 from src.agents.common.context import BaseContext
+from src.services.skill_catalog_service import list_skill_catalog
 
 # --- Multi-Agent Mode Choices ---
-MULTI_AGENT_MODES = ["disabled", "supervisor", "deep_agents"]
+MULTI_AGENT_MODES = ["disabled", "supervisor", "deep_agents", "swarm"]
 
 # --- Default subagent template ---
 DEFAULT_SUBAGENT_TEMPLATE = {
@@ -21,6 +22,7 @@ DEFAULT_SUBAGENT_TEMPLATE = {
     "model": None,
     "knowledges": [],
     "mcps": [],
+    "skills": [],
     "depends_on": [],
     "allowed_targets": [],
     "communication_mode": "hybrid",
@@ -53,7 +55,8 @@ class DynamicAgentContext(BaseContext):
                 "选择多智能体协作模式：\n"
                 "• disabled — 单智能体模式\n"
                 "• supervisor — Supervisor 子图模式（完全可观测子智能体过程）\n"
-                "• deep_agents — Deep Agents 模式（高效并行，子智能体过程不可见）"
+                "• deep_agents — Deep Agents 模式（高效并行，子智能体过程不可见）\n"
+                "• swarm — Swarm Handoff 模式（Agent 间动态交接控制权，适合客服/销售流程）"
             ),
         },
     )
@@ -108,6 +111,18 @@ class DynamicAgentContext(BaseContext):
         },
     )
 
+    skills: Annotated[
+        list[str],
+        {"__template_metadata__": {"kind": "skills"}},
+    ] = field(
+        default_factory=list,
+        metadata={
+            "name": "技能",
+            "options": lambda: list_skill_catalog(),
+            "description": "主智能体可用的 Skills（会在执行时加载对应 SKILL.md）。",
+        },
+    )
+
     subagents: Annotated[
         list[dict],
         {"__template_metadata__": {"kind": "subagents"}},
@@ -118,7 +133,7 @@ class DynamicAgentContext(BaseContext):
             "description": (
                 "配置多智能体协作中的子智能体。"
                 "每个子智能体需要 name、description、system_prompt 字段。"
-                "可选 tools、model、knowledges、mcps 字段。"
+                "可选 tools、model、knowledges、mcps、skills 字段。"
             ),
         },
     )

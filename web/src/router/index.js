@@ -45,6 +45,25 @@ const router = createRouter({
           name: 'AgentSquareComp',
           component: () => import('../views/AgentSquareView.vue'),
           meta: { keepAlive: true, requiresAuth: true }
+        },
+        {
+          path: ':type/:id',
+          name: 'AgentDetailComp',
+          component: () => import('../views/AgentDetailView.vue'),
+          meta: { keepAlive: false, requiresAuth: true }
+        }
+      ]
+    },
+    {
+      path: '/team-builder',
+      name: 'teamBuilder',
+      component: AppLayout,
+      children: [
+        {
+          path: '',
+          name: 'TeamBuilderComp',
+          component: () => import('../views/TeamBuilderView.vue'),
+          meta: { keepAlive: true, requiresAuth: true }
         }
       ]
     },
@@ -90,6 +109,19 @@ const router = createRouter({
           name: 'DashboardComp',
           component: () => import('../views/DashboardView.vue'),
           meta: { keepAlive: false, requiresAuth: true, requiresAdmin: true }
+        }
+      ]
+    },
+    {
+      path: '/runtime',
+      name: 'runtime',
+      component: AppLayout,
+      children: [
+        {
+          path: ':runId?',
+          name: 'RuntimeComp',
+          component: () => import('../views/RuntimeView.vue'),
+          meta: { keepAlive: false, requiresAuth: true }
         }
       ]
     },

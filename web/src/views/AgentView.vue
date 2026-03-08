@@ -13,19 +13,22 @@
         <div class="agent-modal-content">
           <div class="agents-grid">
             <div
-              v-for="agent in agents"
-              :key="agent.id"
+              v-for="agent in selectableAgents"
+              :key="agent._key"
               class="agent-card"
-              :class="{ selected: agent.id === selectedAgentId }"
-              @click="selectAgentFromModal(agent.id)"
+              :class="{ selected: isAgentOptionSelected(agent) }"
+              @click="selectAgentFromModal(agent)"
             >
               <div class="agent-card-header">
                 <div class="agent-card-title">
                   <span class="agent-card-name">{{ agent.name || 'Unknown' }}</span>
                 </div>
-                <StarFilled v-if="agent.id === defaultAgentId" class="default-icon" />
+                <StarFilled
+                  v-if="!agent._isCustom && agent.id === defaultAgentId"
+                  class="default-icon"
+                />
                 <StarOutlined
-                  v-else
+                  v-else-if="!agent._isCustom"
                   @click.prevent="setAsDefaultAgent(agent.id)"
                   class="default-icon"
                 />
@@ -166,7 +169,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import {
   StarOutlined,
   StarFilled,
@@ -185,8 +188,11 @@ import { useChatUIStore } from '@/stores/chatUI'
 import { ChatExporter } from '@/utils/chatExporter'
 import { handleChatError } from '@/utils/errorHandler'
 import { onClickOutside } from '@vueuse/core'
+import { agentApi } from '@/apis/agent_api'
 
 import { storeToRefs } from 'pinia'
+
+const DYNAMIC_AGENT_ID = 'DynamicAgent'
 
 // 组件引用
 const feedbackModal = ref(null)
@@ -206,6 +212,51 @@ const {
   selectedAgentConfigId,
   selectedConfigSummary
 } = storeToRefs(agentStore)
+const customAgentOptions = ref([])
+
+const selectableAgents = computed(() => {
+  const builtinAgents = (agents.value || [])
+    .filter((agent) => agent.id !== DYNAMIC_AGENT_ID)
+    .map((agent) => ({
+      ...agent,
+      _isCustom: false,
+      _key: `builtin_${agent.id}`
+    }))
+
+  const customAgents = customAgentOptions.value.map((agent) => ({
+    ...agent,
+    _isCustom: true,
+    _key: `custom_${agent.id}`
+  }))
+
+  return [...builtinAgents, ...customAgents]
+})
+
+const isAgentOptionSelected = (agent) => {
+  if (agent._isCustom) {
+    return selectedAgentId.value === DYNAMIC_AGENT_ID && selectedAgentConfigId.value === agent.id
+  }
+  return agent.id === selectedAgentId.value
+}
+
+const fetchCustomAgentOptions = async () => {
+  try {
+    const configsRes = await agentApi.getAgentConfigs(DYNAMIC_AGENT_ID)
+    const configs = configsRes.configs || []
+    const detailedConfigs = await Promise.all(
+      configs.map((config) =>
+        agentApi
+          .getAgentConfigProfile(DYNAMIC_AGENT_ID, config.id)
+          .then((res) => res.config || res)
+          .catch(() => config)
+      )
+    )
+    customAgentOptions.value = detailedConfigs
+  } catch (error) {
+    console.error('加载自定义智能体列表失败:', error)
+    customAgentOptions.value = []
+  }
+}
 
 // 设置为默认智能体
 const setAsDefaultAgent = async (agentId) => {
@@ -230,11 +281,17 @@ const selectAgent = async (agentId) => {
 // 打开智能体选择弹窗
 const openAgentModal = () => {
   chatUIStore.agentModalOpen = true
+  void fetchCustomAgentOptions()
 }
 
 // 从弹窗中选择智能体
-const selectAgentFromModal = async (agentId) => {
-  await selectAgent(agentId)
+const selectAgentFromModal = async (agent) => {
+  if (agent._isCustom) {
+    await agentStore.selectAgent(DYNAMIC_AGENT_ID)
+    await agentStore.selectAgentConfig(agent.id)
+  } else {
+    await selectAgent(agent.id)
+  }
   chatUIStore.agentModalOpen = false
 }
 
@@ -367,9 +424,18 @@ const handleFeedback = () => {
 const handlePreview = () => {
   closeMoreMenu()
   if (selectedAgentId.value) {
+    if (selectedAgentId.value === DYNAMIC_AGENT_ID && selectedAgentConfigId.value) {
+      const configId = selectedAgentConfigId.value
+      window.open(`/agent/${DYNAMIC_AGENT_ID}?config_id=${configId}`, '_blank')
+      return
+    }
     window.open(`/agent/${selectedAgentId.value}`, '_blank')
   }
 }
+
+onMounted(() => {
+  void fetchCustomAgentOptions()
+})
 </script>
 
 <style lang="less" scoped>

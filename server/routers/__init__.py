@@ -9,6 +9,7 @@ from server.routers.knowledge_router import knowledge
 from server.routers.evaluation_router import evaluation
 from server.routers.mcp_router import mcp
 from server.routers.mindmap_router import mindmap
+from server.routers.runtime_router import runtime
 from server.routers.system_router import system
 from server.routers.task_router import tasks
 from server.routers.text2sql_router import text2sql
@@ -28,3 +29,4 @@ router.include_router(graph)  # /api/graph/*
 router.include_router(tasks)  # /api/tasks/*
 router.include_router(mcp)  # /api/system/mcp-servers/*
 router.include_router(text2sql)  # /api/text2sql/*
+router.include_router(runtime)  # /api/runtime/*

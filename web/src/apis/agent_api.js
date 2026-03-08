@@ -5,7 +5,6 @@ import {
   apiPut,
   apiAdminGet,
   apiAdminPost,
-  apiAdminDelete,
   apiRequest
 } from './base'
 import { useUserStore } from '@/stores/user'
@@ -156,16 +155,16 @@ export const agentApi = {
     apiGet(`/api/chat/agent/${agentId}/configs/${configId}`),
 
   createAgentConfigProfile: (agentId, payload) =>
-    apiAdminPost(`/api/chat/agent/${agentId}/configs`, payload),
+    apiPost(`/api/chat/agent/${agentId}/configs`, payload),
 
   updateAgentConfigProfile: (agentId, configId, payload) =>
     apiPut(`/api/chat/agent/${agentId}/configs/${configId}`, payload),
 
   setAgentConfigDefault: (agentId, configId) =>
-    apiAdminPost(`/api/chat/agent/${agentId}/configs/${configId}/set_default`, {}),
+    apiPost(`/api/chat/agent/${agentId}/configs/${configId}/set_default`, {}),
 
   deleteAgentConfigProfile: (agentId, configId) =>
-    apiAdminDelete(`/api/chat/agent/${agentId}/configs/${configId}`),
+    apiDelete(`/api/chat/agent/${agentId}/configs/${configId}`),
 
   /**
    * 团队创建向导：根据自然语言输入增量构建团队草稿
@@ -186,13 +185,79 @@ export const agentApi = {
   /**
    * 将团队定义落库为 Agent 配置
    */
-  createTeamProfile: (agentId, payload) => apiAdminPost(`/api/chat/agent/${agentId}/team/create`, payload),
+  createTeamProfile: (agentId, payload) => apiPost(`/api/chat/agent/${agentId}/team/create`, payload),
 
   /**
    * 一句话自动组建并保存团队配置
    */
   autoCreateTeamProfile: (agentId, payload) =>
-    apiAdminPost(`/api/chat/agent/${agentId}/team/auto-create`, payload),
+    apiPost(`/api/chat/agent/${agentId}/team/auto-create`, payload),
+
+  /**
+   * 创建团队组建会话
+   */
+  createTeamSession: (agentId, payload) =>
+    apiPost(`/api/chat/agent/${agentId}/team/session`, payload),
+
+  /**
+   * 获取团队组建会话列表
+   */
+  listTeamSessions: (agentId, params = {}) => {
+    const query = new URLSearchParams()
+    if (Number.isFinite(params.limit) && params.limit > 0) {
+      query.append('limit', String(params.limit))
+    }
+    if (Number.isFinite(params.offset) && params.offset >= 0) {
+      query.append('offset', String(params.offset))
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : ''
+    return apiGet(`/api/chat/agent/${agentId}/team/sessions${suffix}`)
+  },
+
+  /**
+   * 获取单个团队组建会话
+   */
+  getTeamSession: (agentId, threadId) =>
+    apiGet(`/api/chat/agent/${agentId}/team/session/${threadId}`),
+
+  /**
+   * 发送团队组建会话消息
+   */
+  sendTeamSessionMessage: (agentId, threadId, payload) =>
+    apiPost(`/api/chat/agent/${agentId}/team/session/${threadId}/message`, payload),
+
+  /**
+   * 发送团队组建会话消息（流式响应）
+   */
+  sendTeamSessionMessageStream: (agentId, threadId, payload, options = {}) => {
+    const { signal, headers: extraHeaders, ...restOptions } = options || {}
+    const baseHeaders = {
+      'Content-Type': 'application/json',
+      ...useUserStore().getAuthHeaders()
+    }
+    return fetch(`/api/chat/agent/${agentId}/team/session/${threadId}/message/stream`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      signal,
+      headers: {
+        ...baseHeaders,
+        ...(extraHeaders || {})
+      },
+      ...restOptions
+    })
+  },
+
+  /**
+   * 更新团队组建草稿
+   */
+  updateTeamSessionDraft: (agentId, threadId, payload) =>
+    apiPut(`/api/chat/agent/${agentId}/team/session/${threadId}/draft`, payload),
+
+  /**
+   * 从团队组建会话创建配置
+   */
+  createTeamProfileFromSession: (agentId, threadId, payload) =>
+    apiPost(`/api/chat/agent/${agentId}/team/session/${threadId}/create`, payload),
 
   /**
    * 通过 MCP langchain-docs 查询官方文档

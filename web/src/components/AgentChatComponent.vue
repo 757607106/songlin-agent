@@ -59,6 +59,7 @@
           </div>
         </div>
         <div class="header__right">
+          <RuntimePanel :run-id="currentRunId" @open-run="openRuntimeRun" />
           <!-- AgentState 显示按钮已移动到输入框底部 -->
           <slot name="header-right"></slot>
         </div>
@@ -207,6 +208,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, watch, nextTick, computed, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import AgentInputArea from '@/components/AgentInputArea.vue'
 import AgentMessageComponent from '@/components/AgentMessageComponent.vue'
@@ -220,11 +222,12 @@ import { useAgentStore } from '@/stores/agent'
 import { useChatUIStore } from '@/stores/chatUI'
 import { storeToRefs } from 'pinia'
 import { MessageProcessor } from '@/utils/messageProcessor'
-import { agentApi, threadApi, databaseApi, mcpApi } from '@/apis'
+import { agentApi, threadApi, databaseApi, mcpApi, runtimeApi } from '@/apis'
 import HumanApprovalModal from '@/components/HumanApprovalModal.vue'
 import { useApproval } from '@/composables/useApproval'
 import { useAgentStreamHandler } from '@/composables/useAgentStreamHandler'
 import AgentPanel from '@/components/AgentPanel.vue'
+import RuntimePanel from '@/components/runtime/RuntimePanel.vue'
 
 // ==================== PROPS & EMITS ====================
 const props = defineProps({
@@ -232,6 +235,7 @@ const props = defineProps({
   singleMode: { type: Boolean, default: true }
 })
 const emit = defineEmits(['open-config', 'open-agent-modal'])
+const router = useRouter()
 
 // ==================== STORE MANAGEMENT ====================
 const agentStore = useAgentStore()
@@ -501,6 +505,10 @@ const activeSubagent = computed(() => {
   const threadState = currentThreadState.value
   return threadState ? threadState.activeSubagent : null
 })
+const currentRunId = computed(() => {
+  const threadState = currentThreadState.value
+  return threadState?.currentRunId || ''
+})
 
 // ==================== SCROLL & RESIZE HANDLING ====================
 // Update scroll controller to target .chat-main
@@ -538,10 +546,25 @@ const getThreadState = (threadId) => {
       onGoingConv: createOnGoingConvState(),
       agentState: null, // 添加 agentState 字段
       activeSubagent: null, // 当前活动的子 Agent
-      subagentSteps: [] // 子 Agent 执行步骤历史
+      subagentSteps: [], // 子 Agent 执行步骤历史
+      currentRunId: null
     }
   }
   return chatState.threadStates[threadId]
+}
+
+const normalizeRunId = (value) => {
+  const text = String(value || '').trim()
+  return text || null
+}
+
+const syncThreadRunIdFromThread = (thread) => {
+  if (!thread?.id) return
+  const runId = normalizeRunId(thread.current_run_id || thread.run_id)
+  if (!runId) return
+  const threadState = getThreadState(thread.id)
+  if (!threadState) return
+  threadState.currentRunId = runId
 }
 
 // 清理指定线程的状态
@@ -599,6 +622,9 @@ const fetchThreads = async (agentId = null) => {
       offset: 0
     })
     threads.value = fetchedThreads || []
+    threads.value.forEach((thread) => {
+      syncThreadRunIdFromThread(thread)
+    })
   } catch (error) {
     console.error('Failed to fetch threads:', error)
     handleChatError(error, 'fetch')
@@ -618,6 +644,7 @@ const createThread = async (agentId, title = '新的对话') => {
     if (thread) {
       threads.value.unshift(thread)
       threadMessages.value[thread.id] = []
+      syncThreadRunIdFromThread(thread)
     }
     return thread
   } catch (error) {
@@ -768,6 +795,33 @@ const { handleAgentResponse } = useAgentStreamHandler({
   supportsFiles
 })
 
+const createClientUuid = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+const createRuntimeRun = async ({ agentId, threadId, query, requestId }) => {
+  const idemKey = createClientUuid()
+  const payload = {
+    agent_id: agentId,
+    thread_id: threadId,
+    mode: 'hybrid',
+    input: { query },
+    runtime_options: { max_attempts: 1 },
+    request_id: requestId,
+    scope: threadId
+  }
+  try {
+    const res = await runtimeApi.createRun(payload, idemKey)
+    return res?.run_id || null
+  } catch (error) {
+    console.warn('create runtime run failed, fallback to chat-only flow', error)
+    return null
+  }
+}
+
 // 发送消息并处理流式响应
 const sendMessage = async ({
   agentId,
@@ -790,12 +844,27 @@ const sendMessage = async ({
     }
   }
 
+  const requestId = createClientUuid()
+  const runId = await createRuntimeRun({ agentId, threadId, query: text, requestId })
+  const threadState = getThreadState(threadId)
+  if (threadState) {
+    threadState.currentRunId = runId || threadState.currentRunId || null
+  }
+  const thread = threads.value.find((item) => item.id === threadId)
+  if (thread && runId) {
+    thread.current_run_id = runId
+  }
   const requestData = {
     query: text,
     config: {
       thread_id: threadId,
       ...(selectedAgentConfigId.value ? { agent_config_id: selectedAgentConfigId.value } : {})
-    }
+    },
+    meta: {
+      request_id: requestId,
+      run_id: runId || undefined
+    },
+    run_id: runId || undefined
   }
 
   // 如果有图片，添加到请求中
@@ -809,6 +878,12 @@ const sendMessage = async ({
     handleChatError(error, 'send')
     throw error
   }
+}
+
+const openRuntimeRun = (runId) => {
+  const normalized = String(runId || currentRunId.value || '').trim()
+  if (!normalized) return
+  router.push({ name: 'RuntimeComp', params: { runId: normalized } })
 }
 
 // ==================== CHAT ACTIONS ====================
@@ -868,6 +943,10 @@ const selectChat = async (chatId) => {
     return
 
   chatState.currentThreadId = chatId
+  const selectedThread = threads.value.find((thread) => thread.id === chatId)
+  if (selectedThread) {
+    syncThreadRunIdFromThread(selectedThread)
+  }
   chatUIStore.isLoadingMessages = true
   try {
     await fetchThreadMessages({ agentId: currentAgentId.value, threadId: chatId })
@@ -1027,7 +1106,8 @@ const handleApprovalWithStream = async (decision, editedText = '') => {
       decision,
       currentAgentId.value,
       selectedAgentConfigId.value,
-      editedText
+      editedText,
+      threadState.currentRunId
     )
 
     if (!response) return // 如果 handleApproval 抛出错误，这里不会执行

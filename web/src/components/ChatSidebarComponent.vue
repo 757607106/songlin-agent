@@ -48,7 +48,17 @@
               :class="{ active: currentChatId === chat.id }"
               @click="selectChat(chat)"
             >
-              <div class="conversation-title">{{ chat.title || '新的对话' }}</div>
+              <div class="conversation-main">
+                <div class="conversation-title">{{ chat.title || '新的对话' }}</div>
+                <button
+                  v-if="normalizeRunId(chat.current_run_id)"
+                  type="button"
+                  class="run-chip"
+                  @click.stop="openRunDetail(chat.current_run_id)"
+                >
+                  Run {{ shortRunId(chat.current_run_id) }}
+                </button>
+              </div>
               <div class="conversation-status">
                 <span class="status-dot" :class="statusClass(chat.runtime_status)"></span>
               </div>
@@ -89,6 +99,7 @@
 
 <script setup>
 import { computed, h, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { DeleteOutlined, EditOutlined, MoreOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import { PanelLeftClose, MessageSquarePlus, LoaderCircle } from 'lucide-vue-next'
@@ -100,6 +111,7 @@ import { storeToRefs } from 'pinia'
 // 使用 chatUI store
 const chatUIStore = useChatUIStore()
 const infoStore = useInfoStore()
+const router = useRouter()
 
 const { branding } = storeToRefs(infoStore)
 
@@ -169,6 +181,24 @@ watch(
 const handleRuntimeStatusChange = (value) => {
   selectedRuntimeStatus.value = value
   emit('runtime-status-change', value)
+}
+
+const normalizeRunId = (runId) => {
+  const value = String(runId || '').trim()
+  return value || ''
+}
+
+const shortRunId = (runId) => {
+  const value = normalizeRunId(runId)
+  if (!value) return ''
+  if (value.length <= 12) return value
+  return value.slice(0, 12)
+}
+
+const openRunDetail = (runId) => {
+  const value = normalizeRunId(runId)
+  if (!value) return
+  router.push({ name: 'RuntimeComp', params: { runId: value } })
 }
 
 const statusClass = (status) => {
@@ -443,15 +473,40 @@ const toggleCollapse = () => {
       overflow: hidden;
       border: 1px solid transparent;
 
-      .conversation-title {
+      .conversation-main {
         flex: 1;
-        font-size: 14px;
-        color: var(--gray-700);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        transition: color 0.2s ease;
-        font-weight: 500;
+        min-width: 0;
+
+        .conversation-title {
+          font-size: 14px;
+          color: var(--gray-700);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          transition: color 0.2s ease;
+          font-weight: 500;
+        }
+
+        .run-chip {
+          margin-top: 4px;
+          max-width: 100%;
+          border: 1px solid var(--main-100);
+          background: var(--main-10);
+          color: var(--main-700);
+          border-radius: 999px;
+          font-size: 11px;
+          line-height: 1;
+          padding: 2px 8px;
+          cursor: pointer;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .run-chip:hover {
+          background: var(--main-50);
+          border-color: var(--main-200);
+        }
       }
 
       .conversation-status {

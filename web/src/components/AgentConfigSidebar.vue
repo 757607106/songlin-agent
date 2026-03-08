@@ -521,6 +521,10 @@ const getConfigOptions = (value) => {
     return databaseStore.databases || []
   }
   if (value?.template_metadata?.kind === 'skills') {
+    const inlineOptions = Array.isArray(value?.options) ? value.options : []
+    if (inlineOptions.length > 0) {
+      return inlineOptions
+    }
     return reporterSkills.value || []
   }
   return value?.options || []
@@ -731,25 +735,30 @@ const openSelectionModal = async (key) => {
     }
   }
   if (configurableItems.value[key]?.template_metadata?.kind === 'skills') {
-    const connectionId = agentConfig.value?.db_connection_id
-    if (!connectionId) {
-      message.warning('请先选择数据源，再选择技能')
-      return
-    }
-    try {
-      const res = await listReporterSkills(connectionId)
-      const items = Array.isArray(res?.data) ? res.data : []
-      reporterSkills.value = items
-        .filter((item) => item.status === 'published')
-        .map((item) => ({
-          id: item.id,
-          name: item.business_scenario ? `${item.business_scenario} (${item.id})` : item.id,
-          description: `状态: ${item.status}；指标: ${(item.target_metrics || []).join('、') || '未设置'}`
-        }))
-    } catch (error) {
-      console.error('加载技能列表失败:', error)
-      message.error('加载技能列表失败')
-      return
+    const inlineOptions = Array.isArray(configurableItems.value[key]?.options)
+      ? configurableItems.value[key].options
+      : []
+    if (inlineOptions.length === 0) {
+      const connectionId = agentConfig.value?.db_connection_id
+      if (!connectionId) {
+        message.warning('请先选择数据源，再选择技能')
+        return
+      }
+      try {
+        const res = await listReporterSkills(connectionId)
+        const items = Array.isArray(res?.data) ? res.data : []
+        reporterSkills.value = items
+          .filter((item) => item.status === 'published')
+          .map((item) => ({
+            id: item.id,
+            name: item.business_scenario ? `${item.business_scenario} (${item.id})` : item.id,
+            description: `状态: ${item.status}；指标: ${(item.target_metrics || []).join('、') || '未设置'}`
+          }))
+      } catch (error) {
+        console.error('加载技能列表失败:', error)
+        message.error('加载技能列表失败')
+        return
+      }
     }
   }
   const currentValues = agentConfig.value[key] || []

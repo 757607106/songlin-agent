@@ -184,6 +184,7 @@ async def create_thread_view(
         "title": conversation.title,
         "last_message": "",
         "runtime_status": "idle",
+        "current_run_id": (conversation.extra_metadata or {}).get("current_run_id"),
         "status_updated_at": conversation.updated_at.isoformat(),
         "has_interrupt": False,
         "is_loading": False,
@@ -216,6 +217,10 @@ async def list_threads_view(
     )
     latest_message_map = await conv_repo.get_latest_messages_by_conversation_ids([conv.id for conv in conversations])
 
+    visible_conversations = [
+        conv for conv in conversations if (conv.extra_metadata or {}).get("session_type") != "team_builder"
+    ]
+
     return [
         {
             "id": conv.thread_id,
@@ -224,6 +229,7 @@ async def list_threads_view(
             "title": conv.title,
             "last_message": (latest_message_map.get(conv.id).content if latest_message_map.get(conv.id) else ""),
             "runtime_status": _to_public_runtime_status((conv.extra_metadata or {}).get("runtime_status", "idle")),
+            "current_run_id": (conv.extra_metadata or {}).get("current_run_id"),
             "status_updated_at": (conv.extra_metadata or {}).get("status_updated_at", conv.updated_at.isoformat()),
             "has_interrupt": _to_public_runtime_status((conv.extra_metadata or {}).get("runtime_status", "idle"))
             == "interrupted",
@@ -232,7 +238,7 @@ async def list_threads_view(
             "created_at": conv.created_at.isoformat(),
             "updated_at": conv.updated_at.isoformat(),
         }
-        for conv in conversations
+        for conv in visible_conversations
     ]
 
 
@@ -269,6 +275,7 @@ async def update_thread_view(
         "title": updated_conv.title,
         "last_message": "",
         "runtime_status": _to_public_runtime_status((updated_conv.extra_metadata or {}).get("runtime_status", "idle")),
+        "current_run_id": (updated_conv.extra_metadata or {}).get("current_run_id"),
         "status_updated_at": (updated_conv.extra_metadata or {}).get(
             "status_updated_at", updated_conv.updated_at.isoformat()
         ),

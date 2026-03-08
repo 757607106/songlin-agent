@@ -78,6 +78,7 @@ class DynamicAgent(BaseAgent):
             tools=context.tools,
             knowledges=context.knowledges,
             mcps=context.mcps,
+            skills=context.skills,
         )
 
         input_config = {
@@ -148,6 +149,7 @@ class DynamicAgent(BaseAgent):
             tools=context.tools,
             knowledges=context.knowledges,
             mcps=context.mcps,
+            skills=context.skills,
         )
 
         input_config = {
@@ -201,6 +203,7 @@ class DynamicAgent(BaseAgent):
                 "tools": [t.get("name") if isinstance(t, dict) else t for t in (context.tools or [])],
                 "knowledges": context.knowledges or [],
                 "mcps": context.mcps or [],
+                "skills": context.skills or [],
                 "supervisor_prompt": context.supervisor_system_prompt,
             },
             sort_keys=True,

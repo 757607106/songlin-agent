@@ -48,14 +48,14 @@ async def test_txt_add_vector_entity_parsing():
             mock_connection_manager.return_value.status = "open"
 
             gd = GraphDatabase(mock_connection_manager.return_value)
-            # Manually set properties just in case init didn't work as expected due to other mocks
-            gd.driver = mock_driver
-            gd.status = "open"
             gd.embed_model_name = "test_model"  # avoid config check issues if possible
 
             # Mock config to match
-            with patch("src.config.embed_model", "test_model"):
-                with patch("src.config.embed_model_names", {"test_model": MagicMock(dimension=1024)}):
+            with patch("src.knowledge.services.upload_graph_service.config.embed_model", "test_model"):
+                with patch(
+                    "src.knowledge.services.upload_graph_service.config.embed_model_names",
+                    {"test_model": MagicMock(dimension=1024)},
+                ):
                     # Test data: Mixed format
                     triples = [
                         # Legacy format
@@ -68,36 +68,36 @@ async def test_txt_add_vector_entity_parsing():
                         },
                     ]
 
-                # Run the method
-                await gd.txt_add_vector_entity(triples)
+                    # Run the method
+                    await gd.txt_add_vector_entity(triples)
 
-                # Verify calls to mock_tx.run
-                merge_calls = []
-                for call in mock_tx.run.call_args_list:
-                    args, kwargs = call
-                    query = args[0] if args else kwargs.get("query", "")
-                    if "MERGE (h:Entity:Upload" in query:
-                        # The args are passed as kwargs to run: h_name=..., etc.
-                        merge_calls.append(kwargs)
+                    # Verify calls to mock_tx.run
+                    merge_calls = []
+                    for call in mock_tx.run.call_args_list:
+                        args, kwargs = call
+                        query = args[0] if args else kwargs.get("query", "")
+                        if "MERGE (h:Entity:Upload" in query:
+                            # The args are passed as kwargs to run: h_name=..., etc.
+                            merge_calls.append(kwargs)
 
-                assert len(merge_calls) == 2, f"Expected 2 merge calls, got {len(merge_calls)}"
+                    assert len(merge_calls) == 2, f"Expected 2 merge calls, got {len(merge_calls)}"
 
-                # Call 1 (Legacy)
-                call1 = merge_calls[0]
-                assert call1["h_name"] == "A"
-                assert call1["h_props"] == {}
-                assert call1["t_name"] == "B"
-                assert call1["t_props"] == {}
-                assert call1["r_type"] == "KNOWS"
-                assert call1["r_props"] == {}
+                    # Call 1 (Legacy)
+                    call1 = merge_calls[0]
+                    assert call1["h_name"] == "A"
+                    assert call1["h_props"] == {}
+                    assert call1["t_name"] == "B"
+                    assert call1["t_props"] == {}
+                    assert call1["r_type"] == "KNOWS"
+                    assert call1["r_props"] == {}
 
-                # Call 2 (Extended)
-                call2 = merge_calls[1]
-                assert call2["h_name"] == "C"
-                assert call2["h_props"] == {"age": 30}
-                assert call2["t_name"] == "D"
-                assert call2["t_props"] == {"role": "User"}
-                assert call2["r_type"] == "LIKES"
-                assert call2["r_props"] == {"weight": 0.8}
+                    # Call 2 (Extended)
+                    call2 = merge_calls[1]
+                    assert call2["h_name"] == "C"
+                    assert call2["h_props"] == {"age": 30}
+                    assert call2["t_name"] == "D"
+                    assert call2["t_props"] == {"role": "User"}
+                    assert call2["r_type"] == "LIKES"
+                    assert call2["r_props"] == {"weight": 0.8}
 
-                print("Verification passed!")
+                    print("Verification passed!")

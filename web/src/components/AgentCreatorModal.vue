@@ -36,6 +36,7 @@
             >
               一键创建并保存
             </a-button>
+            <a-button @click="goTeamBuilder">进入聊天式组队</a-button>
           </div>
         </div>
 
@@ -122,6 +123,17 @@
               :model_spec="form.model || ''"
             />
           </a-form-item>
+          <a-form-item label="技能（可选）">
+            <a-select
+              mode="multiple"
+              v-model:value="form.skills"
+              placeholder="选择 Skills"
+              :options="skillOptions"
+              allow-clear
+              class="full-width-select"
+              :loading="loadingOptions"
+            />
+          </a-form-item>
 
           <!-- 单智能体模式：工具/知识库/MCP -->
           <template v-if="form.multi_agent_mode === 'disabled'">
@@ -185,11 +197,14 @@
         </a-form>
       </div>
 
-      <!-- 步骤 3: 子智能体配置 (仅 supervisor / deep_agents 模式) -->
+      <!-- 步骤 3: 子智能体配置 (仅 supervisor / deep_agents / swarm 模式) -->
       <div v-if="step === 3" class="step-content scrollable-step">
         <h3 class="step-title">配置子智能体</h3>
         <p class="step-hint" v-if="form.multi_agent_mode === 'supervisor'">
           Supervisor 模式下，主智能体将协调以下子智能体，执行过程完全可观测。
+        </p>
+        <p class="step-hint" v-else-if="form.multi_agent_mode === 'swarm'">
+          Swarm 模式下，Agent 间可以动态交接控制权，适合客服转接、销售流程等场景。
         </p>
         <p class="step-hint" v-else>Deep Agents 模式下，子智能体将高效并行执行，但过程不可见。</p>
 
@@ -222,6 +237,7 @@
           :availableTools="rawTools"
           :availableKnowledges="rawKnowledges"
           :availableMcps="rawMcps"
+          :availableSkills="rawSkills"
         />
       </div>
 
@@ -248,8 +264,9 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { Bot, Users, Zap, Check, Plus, Trash2, Sparkles } from 'lucide-vue-next'
+import { Bot, Users, Zap, Check, Plus, Trash2, Sparkles, Shuffle } from 'lucide-vue-next'
 import { message } from 'ant-design-vue'
+import { useRouter } from 'vue-router'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import SubagentEditor from '@/components/SubagentEditor.vue'
 import { agentApi } from '@/apis/agent_api'
@@ -261,6 +278,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'submit'])
+const router = useRouter()
 
 const isEditing = computed(() => !!props.editData)
 
@@ -285,6 +303,13 @@ const modeOptions = [
     description: '子智能体高效并行执行，适合复杂研究任务。',
     icon: Zap,
     features: ['多智能体', '高效并行', '工具', '知识库', 'MCP']
+  },
+  {
+    value: 'swarm',
+    label: 'Swarm Handoff 模式',
+    description: 'Agent 间动态交接控制权，适合客服/销售流程。',
+    icon: Shuffle,
+    features: ['多智能体', '动态转接', '工具', '知识库', 'MCP']
   }
 ]
 
@@ -302,6 +327,7 @@ const defaultForm = () => ({
   tools: [],
   knowledges: [],
   mcps: [],
+  skills: [],
   subagents: [],
   supervisor_system_prompt: '',
   examples: []
@@ -321,6 +347,7 @@ const loadingOptions = ref(false)
 const rawTools = ref([])
 const rawKnowledges = ref([])
 const rawMcps = ref([])
+const rawSkills = ref([])
 const databaseStore = useDatabaseStore()
 
 const toolOptions = computed(() =>
@@ -341,6 +368,13 @@ const mcpOptions = computed(() =>
   rawMcps.value.map((m) => ({
     label: typeof m === 'string' ? m : m.label || m.name,
     value: typeof m === 'string' ? m : m.value || m.name
+  }))
+)
+
+const skillOptions = computed(() =>
+  rawSkills.value.map((s) => ({
+    label: typeof s === 'string' ? s : s.label || s.name || s.id,
+    value: typeof s === 'string' ? s : s.value || s.id || s.name
   }))
 )
 
@@ -370,6 +404,11 @@ const fetchOptions = async () => {
     if (items.mcps) {
       rawMcps.value = items.mcps.options || []
     }
+
+    // Skills
+    if (items.skills) {
+      rawSkills.value = items.skills.options || []
+    }
   } catch (e) {
     console.error('加载工具/知识库/MCP选项失败:', e)
   } finally {
@@ -379,7 +418,9 @@ const fetchOptions = async () => {
 
 const needsSubagents = computed(
   () =>
-    form.value.multi_agent_mode === 'supervisor' || form.value.multi_agent_mode === 'deep_agents'
+    form.value.multi_agent_mode === 'supervisor' ||
+    form.value.multi_agent_mode === 'deep_agents' ||
+    form.value.multi_agent_mode === 'swarm'
 )
 
 const totalSteps = computed(() => (needsSubagents.value ? 3 : 2))
@@ -474,6 +515,7 @@ const applyTeamDraft = (draft) => {
       : form.value.allow_cross_agent_comm
   form.value.system_prompt = draft.system_prompt || form.value.system_prompt
   form.value.supervisor_system_prompt = draft.supervisor_system_prompt || form.value.supervisor_system_prompt
+  form.value.skills = draft.skills || form.value.skills
   form.value.subagents = draft.subagents || form.value.subagents
 
   if (!form.value.name?.trim()) {
@@ -532,6 +574,11 @@ const autoCreateTeam = async () => {
   }
 }
 
+const goTeamBuilder = () => {
+  handleClose()
+  router.push('/team-builder')
+}
+
 const handleSubmit = async () => {
   submitting.value = true
   try {
@@ -544,6 +591,7 @@ const handleSubmit = async () => {
       allow_cross_agent_comm: form.value.allow_cross_agent_comm,
       system_prompt: form.value.system_prompt,
       model: form.value.model,
+      skills: form.value.skills,
       supervisor_system_prompt: form.value.supervisor_system_prompt
     }
 
@@ -595,6 +643,7 @@ watch(
         tools: cfg.tools || [],
         knowledges: cfg.knowledges || [],
         mcps: cfg.mcps || [],
+        skills: cfg.skills || [],
         subagents: cfg.subagents || [],
         supervisor_system_prompt: cfg.supervisor_system_prompt || '',
         examples: data.examples || []

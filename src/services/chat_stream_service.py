@@ -21,6 +21,7 @@ from src.agents import agent_manager
 from src.plugins.guard import content_guard
 from src.repositories.agent_config_repository import AgentConfigRepository
 from src.repositories.conversation_repository import ConversationRepository
+from src.services.runtime_service import runtime_service
 from src.storage.postgres.manager import pg_manager
 from src.utils.logging_config import logger
 
@@ -44,6 +45,63 @@ def _get_agent_state_view_lock() -> asyncio.Lock:
     if _agent_state_view_lock is None:
         _agent_state_view_lock = asyncio.Lock()
     return _agent_state_view_lock
+
+
+def _extract_run_id(meta: dict | None) -> str | None:
+    if not isinstance(meta, dict):
+        return None
+    run_id = meta.get("run_id")
+    if isinstance(run_id, str) and run_id.strip():
+        return run_id.strip()
+    return None
+
+
+async def _runtime_append_event(
+    *,
+    meta: dict | None,
+    event_type: str,
+    actor_type: str,
+    actor_name: str,
+    payload: dict | None = None,
+) -> None:
+    run_id = _extract_run_id(meta)
+    if not run_id:
+        return
+    try:
+        await runtime_service.append_event(
+            run_id=run_id,
+            event_type=event_type,
+            actor_type=actor_type,
+            actor_name=actor_name,
+            payload=payload or {},
+        )
+    except Exception as exc:
+        logger.debug(f"Skip runtime event `{event_type}` for run `{run_id}`: {exc}")
+
+
+async def _runtime_transition(
+    *,
+    meta: dict | None,
+    next_status: str,
+    actor_type: str,
+    actor_name: str,
+    reason: str | None = None,
+) -> None:
+    run_id = _extract_run_id(meta)
+    if not run_id:
+        return
+    try:
+        result = await runtime_service.transition_status(
+            run_id=run_id,
+            next_status=next_status,
+            actor_type=actor_type,
+            actor_name=actor_name,
+            reason=reason,
+        )
+        if isinstance(result, dict) and result.get("error"):
+            logger.debug(f"Skip runtime transition `{next_status}` for run `{run_id}`: {result['error']}")
+    except Exception as exc:
+        logger.debug(f"Skip runtime transition `{next_status}` for run `{run_id}`: {exc}")
 
 
 async def _iterate_with_next_timeout(stream_source, timeout_seconds: int):
@@ -268,6 +326,46 @@ def extract_agent_state(values: dict, *, include_attachment_content: bool = Fals
     return result
 
 
+def _collect_supervisor_execution_entries(update_event: dict) -> list[dict]:
+    """Extract supervisor execution_log entries from a state_update event."""
+    if not isinstance(update_event, dict):
+        return []
+    data = update_event.get("data")
+    if not isinstance(data, dict):
+        return []
+
+    entries: list[dict] = []
+    for node_payload in data.values():
+        if not isinstance(node_payload, dict):
+            continue
+        execution_log = node_payload.get("execution_log")
+        if not isinstance(execution_log, list):
+            continue
+        for entry in execution_log:
+            if isinstance(entry, dict) and entry.get("type"):
+                entries.append(entry)
+    return entries
+
+
+def _supervisor_entry_fingerprint(entry: dict) -> str:
+    return json.dumps(entry, ensure_ascii=False, sort_keys=True, default=str)
+
+
+def _map_supervisor_entry_to_runtime_event(entry_type: str) -> str:
+    mapping = {
+        "route": "supervisor.route",
+        "communication_gate": "supervisor.handoff_blocked",
+        "dependency_gate": "supervisor.dependency_blocked",
+        "retry_guard_finish": "supervisor.retry_exhausted",
+        "eligible_targets_empty_finish": "supervisor.no_eligible_target",
+        "guard_finish": "supervisor.guard_finish",
+        "global_timeout": "supervisor.global_timeout",
+        "agent_failure": "subagent.failed",
+        "finish": "supervisor.finish",
+    }
+    return mapping.get(entry_type, "supervisor.event")
+
+
 async def _get_existing_message_ids(conv_repo: ConversationRepository, thread_id: str) -> set[str]:
     existing_messages = await conv_repo.get_messages_by_thread_id(thread_id)
     return {
@@ -436,6 +534,25 @@ async def check_and_handle_interrupts(
                 "thread_id": thread_id,
                 "allowed_decisions": allowed_decisions,
             }
+            await _runtime_transition(
+                meta=meta,
+                next_status="paused",
+                actor_type="system",
+                actor_name="chat_stream_service",
+                reason=operation,
+            )
+            await _runtime_append_event(
+                meta=meta,
+                event_type="run.paused",
+                actor_type="system",
+                actor_name="chat_stream_service",
+                payload={
+                    "thread_id": thread_id,
+                    "question": question,
+                    "operation": operation,
+                    "allowed_decisions": allowed_decisions,
+                },
+            )
             if on_interrupt:
                 await on_interrupt(question, operation)
             yield make_chunk(
@@ -494,9 +611,23 @@ async def stream_agent_chat(
     else:
         init_msg["message_type"] = "text"
 
+    await _runtime_append_event(
+        meta=meta,
+        event_type="run.dispatched",
+        actor_type="system",
+        actor_name="chat_stream_service",
+        payload={"agent_id": agent_id, "query": query, "has_image": bool(image_content)},
+    )
     yield make_chunk(status="init", meta=meta, msg=init_msg)
 
     if conf.enable_content_guard and await content_guard.check(query):
+        await _runtime_transition(
+            meta=meta,
+            next_status="failed",
+            actor_type="system",
+            actor_name="chat_stream_service",
+            reason="content_guard_blocked",
+        )
         yield make_chunk(
             status="error", error_type="content_guard_blocked", error_message="输入内容包含敏感词", meta=meta
         )
@@ -506,6 +637,13 @@ async def stream_agent_chat(
         agent = agent_manager.get_agent(agent_id)
     except Exception as e:
         logger.error(f"Error getting agent {agent_id}: {e}, {traceback.format_exc()}")
+        await _runtime_transition(
+            meta=meta,
+            next_status="failed",
+            actor_type="system",
+            actor_name="chat_stream_service",
+            reason="agent_error",
+        )
         yield make_chunk(
             status="error",
             error_type="agent_error",
@@ -519,6 +657,13 @@ async def stream_agent_chat(
     user_id = str(current_user.id)
     department_id = current_user.department_id
     if not department_id:
+        await _runtime_transition(
+            meta=meta,
+            next_status="failed",
+            actor_type="system",
+            actor_name="chat_stream_service",
+            reason="no_department",
+        )
         yield make_chunk(status="error", error_type="no_department", error_message="当前用户未绑定部门", meta=meta)
         return
 
@@ -545,6 +690,9 @@ async def stream_agent_chat(
         logger.warning(f"No thread_id provided, generated new thread_id: {thread_id}")
 
     agent_config = _resolve_agent_config_context(config_item)
+    team_execution_mode = str(agent_config.get("multi_agent_mode") or "disabled")
+    team_policy = agent_config.get("team_policy") if isinstance(agent_config, dict) else {}
+    runtime_audit = (team_policy or {}).get("runtime_audit") if isinstance(team_policy, dict) else {}
     input_context = {
         "user_id": user_id,
         "thread_id": thread_id,
@@ -556,6 +704,13 @@ async def stream_agent_chat(
 
     thread_lock = _thread_stream_locks[thread_id]
     if thread_lock.locked():
+        await _runtime_transition(
+            meta=meta,
+            next_status="failed",
+            actor_type="system",
+            actor_name="chat_stream_service",
+            reason="thread_busy",
+        )
         yield make_chunk(
             status="error",
             error_type="thread_busy",
@@ -569,6 +724,13 @@ async def stream_agent_chat(
     try:
         distributed_lock_session, distributed_lock_acquired = await _try_acquire_distributed_thread_lock(thread_id)
         if not distributed_lock_acquired:
+            await _runtime_transition(
+                meta=meta,
+                next_status="failed",
+                actor_type="system",
+                actor_name="chat_stream_service",
+                reason="thread_busy",
+            )
             yield make_chunk(
                 status="error",
                 error_type="thread_busy",
@@ -577,12 +739,34 @@ async def stream_agent_chat(
             )
             return
         conv_repo = ConversationRepository(db)
+        run_id = _extract_run_id(meta)
+        runtime_metadata = {"current_run_id": run_id} if run_id else {}
+        if agent_config_id is not None:
+            runtime_metadata["agent_config_id"] = agent_config_id
         await update_thread_runtime_status(
             conv_repo,
             thread_id,
             RUNTIME_STATUS_RUNNING,
             has_interrupt=False,
-            extra_metadata={"agent_config_id": agent_config_id} if agent_config_id is not None else None,
+            extra_metadata=runtime_metadata or None,
+        )
+        await _runtime_transition(
+            meta=meta,
+            next_status="running",
+            actor_type="system",
+            actor_name="chat_stream_service",
+            reason=f"thread:{thread_id}",
+        )
+        await _runtime_append_event(
+            meta=meta,
+            event_type="team.execution.started",
+            actor_type="system",
+            actor_name=team_execution_mode,
+            payload={
+                "thread_id": thread_id,
+                "mode": team_execution_mode,
+                "runtime_audit": runtime_audit if isinstance(runtime_audit, dict) else {},
+            },
         )
 
         try:
@@ -651,6 +835,7 @@ async def stream_agent_chat(
         last_tool_state_emit_at = 0.0
         pending_agent_state_task: asyncio.Task | None = None
         current_subagent = None  # 跟踪当前执行的子 Agent
+        seen_supervisor_entry_fingerprints: set[str] = set()
 
         async def _load_agent_state_snapshot() -> dict:
             nonlocal state_graph
@@ -703,6 +888,16 @@ async def stream_agent_chat(
                             # 跟踪子 Agent 状态变化
                             if subagent_name != current_subagent:
                                 current_subagent = subagent_name
+                            await _runtime_append_event(
+                                meta=meta,
+                                event_type="agent.spawned",
+                                actor_type="subagent",
+                                actor_name=subagent_name or "unknown_subagent",
+                                payload={
+                                    "step": interesting_nodes[0],
+                                    "namespace": update_event.get("namespace", []),
+                                },
+                            )
                             yield make_chunk(
                                 status="subagent_step",
                                 subagent_name=subagent_name,
@@ -710,6 +905,30 @@ async def stream_agent_chat(
                                 namespace=update_event.get("namespace", []),
                                 meta=meta,
                             )
+
+                    # 记录 supervisor 执行期审计事件（路由/重试/依赖门控等）
+                    for entry in _collect_supervisor_execution_entries(update_event):
+                        fp = _supervisor_entry_fingerprint(entry)
+                        if fp in seen_supervisor_entry_fingerprints:
+                            continue
+                        seen_supervisor_entry_fingerprints.add(fp)
+                        event_type = _map_supervisor_entry_to_runtime_event(str(entry.get("type") or ""))
+                        await _runtime_append_event(
+                            meta=meta,
+                            event_type=event_type,
+                            actor_type="supervisor",
+                            actor_name="dynamic_supervisor",
+                            payload={
+                                "mode": team_execution_mode,
+                                "entry": entry,
+                            },
+                        )
+                        yield make_chunk(
+                            status="execution_audit",
+                            audit_event_type=event_type,
+                            audit_event=entry,
+                            meta=meta,
+                        )
                 continue
 
             # messages 模式：原有的消息处理逻辑
@@ -724,6 +943,13 @@ async def stream_agent_chat(
                     full_msg = AIMessage(content="".join(accumulated_content))
                     await save_partial_message(conv_repo, thread_id, full_msg, "content_guard_blocked")
                     meta["time_cost"] = asyncio.get_event_loop().time() - start_time
+                    await _runtime_transition(
+                        meta=meta,
+                        next_status="failed",
+                        actor_type="system",
+                        actor_name="chat_stream_service",
+                        reason="content_guard_blocked",
+                    )
                     yield make_chunk(status="interrupted", message="检测到敏感内容，已中断输出", meta=meta)
                     return
 
@@ -748,6 +974,16 @@ async def stream_agent_chat(
 
                 try:
                     if isinstance(msg_dict, dict) and msg_dict.get("type") == "tool":
+                        await _runtime_append_event(
+                            meta=meta,
+                            event_type="tool.called",
+                            actor_type="tool",
+                            actor_name=str(msg_dict.get("name") or "unknown_tool"),
+                            payload={
+                                "tool_call_id": msg_dict.get("tool_call_id"),
+                                "metadata": metadata if isinstance(metadata, dict) else {},
+                            },
+                        )
                         tool_state_event_count += 1
                         now_ts = asyncio.get_event_loop().time()
                         should_emit_state = tool_state_event_count % 3 == 0 or (now_ts - last_tool_state_emit_at) >= 1.5
@@ -772,6 +1008,13 @@ async def stream_agent_chat(
         if conf.enable_content_guard and hasattr(full_msg, "content") and await content_guard.check(full_msg.content):
             await save_partial_message(conv_repo, thread_id, full_msg, "content_guard_blocked")
             meta["time_cost"] = asyncio.get_event_loop().time() - start_time
+            await _runtime_transition(
+                meta=meta,
+                next_status="failed",
+                actor_type="system",
+                actor_name="chat_stream_service",
+                reason="content_guard_blocked",
+            )
             yield make_chunk(status="interrupted", message="检测到敏感内容，已中断输出", meta=meta)
             return
 
@@ -805,6 +1048,19 @@ async def stream_agent_chat(
 
         if agent_state:
             yield make_chunk(status="agent_state", agent_state=agent_state, meta=meta)
+            await _runtime_append_event(
+                meta=meta,
+                event_type="team.execution.summary",
+                actor_type="system",
+                actor_name=team_execution_mode,
+                payload={
+                    "route_count": len(agent_state.get("route_history") or []),
+                    "execution_log_count": len(agent_state.get("execution_log") or []),
+                    "completed_agents": list(agent_state.get("completed_agents") or []),
+                    "retry_counts": dict(agent_state.get("retry_counts") or {}),
+                    "active_agent": agent_state.get("active_agent"),
+                },
+            )
 
         # 先存储数据库，再返回 finished，避免前端查询时数据未落库
         await save_messages_from_langgraph_state(
@@ -814,6 +1070,20 @@ async def stream_agent_chat(
             config_dict=langgraph_config,
         )
         await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_COMPLETED, has_interrupt=False)
+        await _runtime_transition(
+            meta=meta,
+            next_status="completed",
+            actor_type="system",
+            actor_name="chat_stream_service",
+            reason="stream_finished",
+        )
+        await _runtime_append_event(
+            meta=meta,
+            event_type="run.completed",
+            actor_type="system",
+            actor_name="chat_stream_service",
+            payload={"thread_id": thread_id},
+        )
 
         yield make_chunk(status="finished", meta=meta)
 
@@ -844,6 +1114,13 @@ async def stream_agent_chat(
         except Exception as exc:
             logger.error(f"Error during cleanup save: {exc}")
 
+        await _runtime_transition(
+            meta=meta,
+            next_status="cancelled",
+            actor_type="system",
+            actor_name="chat_stream_service",
+            reason="client_disconnected",
+        )
         yield make_chunk(status="interrupted", message="对话已中断", meta=meta)
 
     except Exception as e:
@@ -872,6 +1149,20 @@ async def stream_agent_chat(
                 error_message=error_msg,
             )
 
+        await _runtime_transition(
+            meta=meta,
+            next_status="failed",
+            actor_type="system",
+            actor_name="chat_stream_service",
+            reason=error_type,
+        )
+        await _runtime_append_event(
+            meta=meta,
+            event_type="run.failed",
+            actor_type="system",
+            actor_name="chat_stream_service",
+            payload={"error_type": error_type, "error_message": error_msg},
+        )
         yield make_chunk(status="error", error_type=error_type, error_message=error_msg, meta=meta)
     finally:
         pending_agent_state_task = locals().get("pending_agent_state_task")
@@ -906,6 +1197,13 @@ async def stream_agent_resume(
 
     thread_lock = _thread_stream_locks[thread_id]
     if thread_lock.locked():
+        await _runtime_transition(
+            meta=meta,
+            next_status="failed",
+            actor_type="system",
+            actor_name="chat_stream_service.resume",
+            reason="thread_busy",
+        )
         yield make_resume_chunk(
             status="error",
             error_type="thread_busy",
@@ -919,6 +1217,13 @@ async def stream_agent_resume(
     try:
         distributed_lock_session, distributed_lock_acquired = await _try_acquire_distributed_thread_lock(thread_id)
         if not distributed_lock_acquired:
+            await _runtime_transition(
+                meta=meta,
+                next_status="failed",
+                actor_type="system",
+                actor_name="chat_stream_service.resume",
+                reason="thread_busy",
+            )
             yield make_resume_chunk(
                 status="error",
                 error_type="thread_busy",
@@ -936,12 +1241,33 @@ async def stream_agent_resume(
         return
 
     init_msg = {"type": "system", "content": f"Resume with decision: {meta.get('decision', 'approve')}"}
+    await _runtime_transition(
+        meta=meta,
+        next_status="resuming",
+        actor_type="user",
+        actor_name=str(current_user.id),
+        reason=f"decision:{meta.get('decision')}",
+    )
+    await _runtime_append_event(
+        meta=meta,
+        event_type="run.resumed",
+        actor_type="user",
+        actor_name=str(current_user.id),
+        payload={"decision": meta.get("decision"), "thread_id": thread_id},
+    )
     yield make_resume_chunk(status="init", meta=meta, msg=init_msg)
 
     resume_command = Command(resume=resume_payload)
     user_id = str(current_user.id)
     department_id = current_user.department_id
     if not department_id:
+        await _runtime_transition(
+            meta=meta,
+            next_status="failed",
+            actor_type="system",
+            actor_name="chat_stream_service.resume",
+            reason="no_department",
+        )
         yield make_resume_chunk(
             status="error", error_type="no_department", error_message="当前用户未绑定部门", meta=meta
         )
@@ -986,12 +1312,23 @@ async def stream_agent_resume(
         stream_mode="messages",
     )
     conv_repo = ConversationRepository(db)
+    run_id = _extract_run_id(meta)
+    runtime_metadata = {"current_run_id": run_id} if run_id else {}
+    if agent_config_id is not None:
+        runtime_metadata["agent_config_id"] = agent_config_id
     await update_thread_runtime_status(
         conv_repo,
         thread_id,
         RUNTIME_STATUS_RUNNING,
         has_interrupt=False,
-        extra_metadata={"agent_config_id": agent_config_id} if agent_config_id is not None else None,
+        extra_metadata=runtime_metadata or None,
+    )
+    await _runtime_transition(
+        meta=meta,
+        next_status="running",
+        actor_type="system",
+        actor_name="chat_stream_service.resume",
+        reason="resume_stream_started",
     )
 
     try:
@@ -999,6 +1336,18 @@ async def stream_agent_resume(
             msg_dict = msg.model_dump()
             if "id" not in msg_dict:
                 msg_dict["id"] = str(uuid.uuid4())
+            if isinstance(msg_dict, dict) and msg_dict.get("type") == "tool":
+                await _runtime_append_event(
+                    meta=meta,
+                    event_type="tool.called",
+                    actor_type="tool",
+                    actor_name=str(msg_dict.get("name") or "unknown_tool"),
+                    payload={
+                        "tool_call_id": msg_dict.get("tool_call_id"),
+                        "resume": True,
+                        "metadata": metadata if isinstance(metadata, dict) else {},
+                    },
+                )
 
             yield make_resume_chunk(
                 content=getattr(msg, "content", ""), msg=msg_dict, metadata=metadata, status="loading"
@@ -1029,6 +1378,13 @@ async def stream_agent_resume(
             config_dict=langgraph_config,
         )
         await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_COMPLETED, has_interrupt=False)
+        await _runtime_transition(
+            meta=meta,
+            next_status="completed",
+            actor_type="system",
+            actor_name="chat_stream_service.resume",
+            reason="resume_finished",
+        )
 
         yield make_resume_chunk(status="finished", meta=meta)
 
@@ -1042,6 +1398,13 @@ async def stream_agent_resume(
             )
             await update_thread_runtime_status(new_conv_repo, thread_id, RUNTIME_STATUS_IDLE, has_interrupt=False)
 
+        await _runtime_transition(
+            meta=meta,
+            next_status="cancelled",
+            actor_type="system",
+            actor_name="chat_stream_service.resume",
+            reason="resume_interrupted",
+        )
         yield make_resume_chunk(status="interrupted", message="对话恢复已中断", meta=meta)
 
     except Exception as e:
@@ -1060,6 +1423,13 @@ async def stream_agent_resume(
                 error_message=f"Error during resume: {e}",
             )
 
+        await _runtime_transition(
+            meta=meta,
+            next_status="failed",
+            actor_type="system",
+            actor_name="chat_stream_service.resume",
+            reason="resume_error",
+        )
         yield make_resume_chunk(message=f"Error during resume: {e}", status="error")
     finally:
         await _release_distributed_thread_lock(distributed_lock_session, thread_id)
@@ -1106,7 +1476,10 @@ async def get_agent_state_view(
         raise
 
     async with cache_lock:
-        _agent_state_view_cache[cache_key] = (asyncio.get_event_loop().time() + AGENT_STATE_VIEW_CACHE_TTL_SECONDS, payload)
+        _agent_state_view_cache[cache_key] = (
+            asyncio.get_event_loop().time() + AGENT_STATE_VIEW_CACHE_TTL_SECONDS,
+            payload,
+        )
         if _agent_state_view_inflight.get(cache_key) is inflight:
             _agent_state_view_inflight.pop(cache_key, None)
         if len(_agent_state_view_cache) > 2048:

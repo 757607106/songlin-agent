@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
+from datetime import UTC, datetime
 from graphlib import CycleError, TopologicalSorter
 from itertools import combinations
 from typing import Any
@@ -14,11 +16,11 @@ from src.agents.common.models import load_chat_model
 from src.services.mcp_service import get_enabled_mcp_tools
 from src.utils import logger
 
-TEAM_MODES = {"disabled", "supervisor", "deep_agents"}
+TEAM_MODES = {"disabled", "supervisor", "deep_agents", "swarm"}
 COMMUNICATION_MODES = {"sync", "async", "hybrid"}
 
 _ROLE_ASSIGN_RE = re.compile(
-    r"(?P<name>[A-Za-z0-9_\-\u4e00-\u9fff]+)\.(?P<field>description|system_prompt|model|tools|knowledges|mcps|depends_on|allowed_targets|max_retries|communication_mode|plugin)\s*[:=：]\s*(?P<value>.+)"
+    r"(?P<name>[A-Za-z0-9_\-\u4e00-\u9fff]+)\.(?P<field>description|system_prompt|model|tools|knowledges|mcps|skills|depends_on|allowed_targets|max_retries|communication_mode|plugin)\s*[:=：]\s*(?P<value>.+)"
 )
 _AGENT_LINE_RE = re.compile(
     r"^[\-\*\d\.)\s]*(?P<name>[A-Za-z0-9_\-\u4e00-\u9fff]+)\s*[:：]\s*(?P<desc>.+)$"
@@ -63,15 +65,38 @@ _TEAM_INTENT_KEYWORDS = {
     "协作团队",
 }
 
-_DEV_TEAM_KEYWORDS = {
-    "开发团队",
-    "研发团队",
-    "需求开发",
-    "软件开发",
-    "project",
-    "产品开发",
+_SUPERVISOR_HINT_KEYWORDS = {
+    "supervisor",
+    "可观测",
+    "审计",
+    "追踪",
+    "路由",
+    "监管",
+    "治理",
+}
+
+_DEEP_AGENTS_HINT_KEYWORDS = {
     "deepagents",
     "deep_agents",
+    "并行",
+    "效率",
+    "吞吐",
+    "批处理",
+    "批量",
+}
+
+_SWARM_HINT_KEYWORDS = {
+    "swarm",
+    "handoff",
+    "转接",
+    "客服",
+    "销售",
+    "支持",
+    "support",
+    "sales",
+    "交接",
+    "路由到",
+    "转给",
 }
 
 _DEEP_AGENTS_CAPABILITY_HINT = (
@@ -91,10 +116,27 @@ class TeamOrchestrationService:
     3. 生成 DynamicAgent 可直接使用的运行时上下文
     """
 
-    def wizard_step(self, message: str, draft: dict[str, Any] | None = None) -> dict[str, Any]:
+    def wizard_step(
+        self,
+        message: str,
+        draft: dict[str, Any] | None = None,
+        *,
+        available_resources: dict[str, list[str]] | None = None,
+    ) -> dict[str, Any]:
         merged = self._merge_draft(draft or {}, self._parse_user_message(message))
         normalized = self._normalize_team_payload(merged)
-        return self._build_wizard_result(normalized)
+        assembly_meta = {
+            "pipeline": "manual_parse",
+            "status": "ready",
+            "attempts": [],
+            "updated_at": self._utc_now_iso(),
+        }
+        return self._build_wizard_result(
+            normalized,
+            message=message,
+            available_resources=available_resources,
+            assembly_meta=assembly_meta,
+        )
 
     async def wizard_step_with_ai(
         self,
@@ -102,27 +144,331 @@ class TeamOrchestrationService:
         draft: dict[str, Any] | None = None,
         *,
         auto_complete: bool = True,
+        available_resources: dict[str, list[str]] | None = None,
     ) -> dict[str, Any]:
-        merged = self._merge_draft(draft or {}, self._parse_user_message(message))
+        """AI-powered team creation wizard.
+        
+        Flow:
+        1. Parse user message to extract structured fields
+        2. If team needs completion, use LLM to understand intent and generate team
+        3. Validate and optionally request one more LLM repair pass
+        """
+        current_draft = dict(draft or {})
+        user_patch = self._parse_user_message_with_context(message, current_draft)
+        user_explicit_mode = bool(user_patch.get("multi_agent_mode"))
+        merged = self._merge_draft(current_draft, user_patch)
         normalized = self._normalize_team_payload(merged)
+        assembly_meta = {
+            "pipeline": "ai_team_builder",
+            "status": "skipped",
+            "attempts": [],
+            "user_explicit_mode": user_explicit_mode,
+            "updated_at": self._utc_now_iso(),
+        }
 
+        # Check if AI auto-complete should be triggered
         if auto_complete and self._should_auto_complete(message, normalized):
-            template_patch = self._build_builtin_team_patch(message, normalized)
-            if template_patch:
-                merged = self._merge_draft(merged, template_patch)
-                normalized = self._normalize_team_payload(merged)
+            normalized, ai_meta = await self._complete_team_with_llm(
+                message,
+                normalized,
+                available_resources=available_resources,
+                user_explicit_mode=user_explicit_mode,
+            )
+            assembly_meta = ai_meta
+        elif not auto_complete:
+            assembly_meta["status"] = "auto_complete_disabled"
+        else:
+            assembly_meta["status"] = "auto_complete_not_needed"
 
-        if auto_complete and self._should_auto_complete(message, normalized):
-            ai_patch = await self._generate_team_patch_with_llm(message, normalized)
-            if ai_patch:
-                merged = self._merge_draft(merged, ai_patch)
-                normalized = self._normalize_team_payload(merged)
+        return self._build_wizard_result(
+            normalized,
+            message=message,
+            available_resources=available_resources,
+            assembly_meta=assembly_meta,
+        )
 
-        return self._build_wizard_result(normalized)
+    async def _complete_team_with_llm(
+        self,
+        message: str,
+        current_team: dict[str, Any],
+        *,
+        available_resources: dict[str, list[str]] | None = None,
+        user_explicit_mode: bool = False,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Use LLM to complete team draft, then run one repair round if needed."""
+        working = self._normalize_team_payload(current_team)
+        llm_prompt = message
+        build_meta: dict[str, Any] = {
+            "pipeline": "ai_blueprint_pipeline",
+            "status": "in_progress",
+            "started_at": self._utc_now_iso(),
+            "attempts": [],
+            "mode_alignment_events": [],
+            "user_explicit_mode": user_explicit_mode,
+            "latest_blueprint": {},
+        }
 
-    def _build_wizard_result(self, normalized: dict[str, Any]) -> dict[str, Any]:
-        check = self.validate_team(normalized, strict=False)
+        for idx in range(2):
+            blueprint = await self._build_task_blueprint_with_llm(llm_prompt, working)
+            ai_patch = await self._generate_team_patch_from_blueprint_with_llm(
+                llm_prompt,
+                working,
+                blueprint=blueprint,
+                available_resources=available_resources,
+            )
+            patch_source = "blueprint"
+            if not self._has_meaningful_team_content(ai_patch):
+                ai_patch = await self._generate_team_patch_with_llm(llm_prompt, working)
+                patch_source = "direct_fallback"
+            if not self._has_meaningful_team_content(ai_patch):
+                build_meta["attempts"].append(
+                    {
+                        "attempt": idx + 1,
+                        "patch_source": patch_source,
+                        "used_blueprint": bool(blueprint),
+                        "is_empty_patch": True,
+                    }
+                )
+                break
+
+            working = self._normalize_team_payload(self._merge_draft(working, ai_patch))
+            if not user_explicit_mode:
+                working, alignment_event = self._align_mode_with_recommendation(
+                    llm_prompt,
+                    working,
+                    available_resources=available_resources,
+                )
+                if alignment_event:
+                    build_meta["mode_alignment_events"].append(alignment_event)
+
+            validation = self.validate_team(
+                working,
+                strict=False,
+                available_resources=available_resources,
+            )
+            questions = self._build_missing_questions(working)
+            if blueprint:
+                build_meta["latest_blueprint"] = {
+                    "workstream_count": len(blueprint.get("workstreams") or []),
+                    "complexity_level": str(blueprint.get("complexity_level") or "").strip(),
+                }
+            build_meta["attempts"].append(
+                {
+                    "attempt": idx + 1,
+                    "patch_source": patch_source,
+                    "used_blueprint": bool(blueprint),
+                    "subagent_count": len(working.get("subagents") or []),
+                    "selected_mode": working.get("multi_agent_mode") or "disabled",
+                    "is_valid": bool(validation["valid"]),
+                    "error_count": len(validation.get("errors") or []),
+                    "question_count": len(questions),
+                }
+            )
+            if validation["valid"] and not questions:
+                build_meta["status"] = "completed"
+                break
+
+            llm_prompt = self._build_repair_prompt(
+                message=message,
+                validation_errors=validation["errors"],
+                questions=questions,
+            )
+
+        if build_meta["status"] == "in_progress":
+            build_meta["status"] = "partial" if build_meta["attempts"] else "no_generation"
+        build_meta["completed_at"] = self._utc_now_iso()
+        build_meta["final_subagent_count"] = len(working.get("subagents") or [])
+        build_meta["final_mode"] = working.get("multi_agent_mode") or "disabled"
+        return working, build_meta
+
+    async def _build_task_blueprint_with_llm(
+        self,
+        message: str,
+        current_team: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Generate an execution blueprint before materializing agents."""
+        if os.getenv("YUXI_SKIP_APP_INIT") == "1":
+            return {}
+        try:
+            model = load_chat_model(app_config.default_model, temperature=0)
+            response = await model.ainvoke(
+                [
+                    SystemMessage(
+                        content=(
+                            "你是任务编排规划器。请把用户需求转成团队执行蓝图 JSON。\n"
+                            "输出字段：team_goal,task_scope,complexity_level,workstreams。\n"
+                            "workstreams 每项字段：id,objective,depends_on,required_capabilities,deliverables。\n"
+                            "只输出 JSON，不要解释。"
+                        )
+                    ),
+                    HumanMessage(
+                        content=(
+                            f"用户输入:\n{message}\n\n"
+                            f"当前草稿:\n{json.dumps(current_team, ensure_ascii=False)}"
+                        )
+                    ),
+                ]
+            )
+            parsed = self._parse_model_json(getattr(response, "content", response))
+            if not isinstance(parsed, dict):
+                return {}
+            if not isinstance(parsed.get("workstreams"), list):
+                return {}
+            return parsed
+        except Exception as exc:
+            logger.warning(f"Build task blueprint failed: {exc}")
+            return {}
+
+    async def _generate_team_patch_from_blueprint_with_llm(
+        self,
+        message: str,
+        current_team: dict[str, Any],
+        *,
+        blueprint: dict[str, Any],
+        available_resources: dict[str, list[str]] | None = None,
+    ) -> dict[str, Any]:
+        """Materialize a DynamicAgent team patch from an AI-generated blueprint."""
+        if not blueprint:
+            return {}
+        if os.getenv("YUXI_SKIP_APP_INIT") == "1":
+            return {}
+
+        normalized_resources = self._normalize_available_resources(available_resources)
+        try:
+            model = load_chat_model(app_config.default_model, temperature=0)
+            response = await model.ainvoke(
+                [
+                    SystemMessage(
+                        content=(
+                            "你是多 Agent 团队架构师。基于执行蓝图生成 DynamicAgent 团队 JSON。\n"
+                            "角色分工必须覆盖蓝图中的 workstreams 且依赖关系无环。\n"
+                            "输出 JSON 字段：team_goal,task_scope,multi_agent_mode,communication_protocol,"
+                            "max_parallel_tasks,allow_cross_agent_comm,system_prompt,supervisor_system_prompt,subagents。\n"
+                            "subagents 每项必须包含 name,description,system_prompt,depends_on,communication_mode,"
+                            "tools,knowledges,mcps,skills。\n"
+                            "若提供了可用资源列表，只能从该列表中选择资源。\n"
+                            "只输出 JSON，不要额外解释。"
+                        )
+                    ),
+                    HumanMessage(
+                        content=(
+                            f"用户输入:\n{message}\n\n"
+                            f"当前草稿:\n{json.dumps(current_team, ensure_ascii=False)}\n\n"
+                            f"执行蓝图:\n{json.dumps(blueprint, ensure_ascii=False)}\n\n"
+                            f"可用资源:\n{json.dumps(normalized_resources, ensure_ascii=False)}"
+                        )
+                    ),
+                ]
+            )
+            parsed = self._parse_model_json(getattr(response, "content", response))
+            if not isinstance(parsed, dict):
+                return {}
+            normalized = self._normalize_team_payload(parsed)
+            if self._has_meaningful_team_content(normalized):
+                return normalized
+            return {}
+        except Exception as exc:
+            logger.warning(f"Generate team from blueprint failed: {exc}")
+            return {}
+
+    def _normalize_available_resources(
+        self,
+        available_resources: dict[str, list[str]] | None = None,
+    ) -> dict[str, list[str]]:
+        source = available_resources or {}
+        return {
+            "tools": sorted(set(self._normalize_list_field(source.get("tools")))),
+            "knowledges": sorted(set(self._normalize_list_field(source.get("knowledges")))),
+            "mcps": sorted(set(self._normalize_list_field(source.get("mcps")))),
+            "skills": sorted(set(self._normalize_list_field(source.get("skills")))),
+        }
+
+    @staticmethod
+    def _has_meaningful_team_content(patch: dict[str, Any] | None) -> bool:
+        if not isinstance(patch, dict) or not patch:
+            return False
+
+        for field in ("team_goal", "task_scope", "system_prompt", "supervisor_system_prompt"):
+            if str(patch.get(field) or "").strip():
+                return True
+        if patch.get("subagents"):
+            return True
+        return any(patch.get(field) for field in ("tools", "knowledges", "mcps", "skills"))
+
+    def _align_mode_with_recommendation(
+        self,
+        message: str,
+        team: dict[str, Any],
+        *,
+        available_resources: dict[str, list[str]] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        validation = self.validate_team(
+            team,
+            strict=False,
+            available_resources=available_resources,
+        )
+        recommendation = self._recommend_mode(message=message, team=team, validation=validation)
+        selected_mode = team.get("multi_agent_mode") or "disabled"
+        recommended_mode = recommendation.get("recommended_mode")
+        member_count = len(team.get("subagents") or [])
+
+        if selected_mode == "disabled" and member_count > 1 and recommended_mode in TEAM_MODES:
+            aligned = dict(team)
+            aligned["multi_agent_mode"] = recommended_mode
+            return self._normalize_team_payload(aligned), {
+                "from_mode": selected_mode,
+                "to_mode": recommended_mode,
+                "reason": recommendation.get("reason") or "",
+                "at": self._utc_now_iso(),
+            }
+        return team, None
+
+    @staticmethod
+    def _build_repair_prompt(
+        *,
+        message: str,
+        validation_errors: list[str],
+        questions: list[str],
+    ) -> str:
+        issues = []
+        for err in (validation_errors or [])[:5]:
+            issues.append(f"- 校验错误: {err}")
+        for q in (questions or [])[:3]:
+            issues.append(f"- 缺失字段: {q}")
+
+        if not issues:
+            return message
+
+        return (
+            f"{message}\n\n"
+            "请修复以下问题并重新生成完整团队 JSON：\n"
+            f"{chr(10).join(issues)}"
+        )
+
+    def _build_wizard_result(
+        self,
+        normalized: dict[str, Any],
+        *,
+        message: str = "",
+        available_resources: dict[str, list[str]] | None = None,
+        assembly_meta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        check = self.validate_team(
+            normalized,
+            strict=False,
+            available_resources=available_resources,
+        )
         questions = self._build_missing_questions(normalized)
+        mode_recommendation = self._recommend_mode(
+            message=message,
+            team=normalized,
+            validation=check,
+        )
+        final_meta = dict(assembly_meta or {})
+        final_meta["selected_mode"] = normalized.get("multi_agent_mode") or "disabled"
+        final_meta["recommended_mode"] = mode_recommendation.get("recommended_mode")
+        final_meta["is_selected_mode_recommended"] = bool(mode_recommendation.get("is_selected_mode_recommended"))
+        final_meta["updated_at"] = self._utc_now_iso()
 
         if questions:
             assistant_message = questions[0]
@@ -145,26 +491,49 @@ class TeamOrchestrationService:
             "assistant_message": assistant_message,
             "questions": questions,
             "validation": check,
+            "mode_recommendation": mode_recommendation,
+            "resource_validation": check.get("resource_validation") or {},
+            "assembly_meta": final_meta,
         }
 
     def _should_auto_complete(self, message: str, team: dict[str, Any]) -> bool:
+        """Determine if AI auto-completion should be triggered.
+        
+        Auto-complete is triggered when:
+        1. Message contains team-related keywords AND team is incomplete, OR
+        2. Team has goal/scope but no subagents (needs AI to generate team structure)
+        """
         text = (message or "").strip().lower()
         if not text:
             return False
 
-        if not self._looks_like_team_intent(text):
-            return False
-
         members = team.get("subagents") or []
-        if not members:
-            return True
-
-        if not team.get("team_goal") or not team.get("task_scope"):
-            return True
-
-        for member in members:
-            if not member.get("description") or not member.get("system_prompt"):
+        has_goal = bool(team.get("team_goal"))
+        has_scope = bool(team.get("task_scope"))
+        
+        # Case 1: Message looks like team creation intent
+        if self._looks_like_team_intent(text):
+            if not members:
                 return True
+            if not has_goal or not has_scope:
+                return True
+            for member in members:
+                if not member.get("description") or not member.get("system_prompt"):
+                    return True
+        
+        # Case 2: User provided goal/scope but no subagents yet
+        # This enables conversational team building
+        if has_goal and has_scope and not members:
+            return True
+        
+        # Case 3: Message describes a service/function that could be a team
+        service_indicators = {
+            "客服", "服务", "支持", "咨询", "售前", "售后",
+            "分析", "报表", "数据", "开发", "研发", "测试",
+            "内容", "创作", "写作", "营销", "运营"
+        }
+        if any(ind in text for ind in service_indicators) and not members:
+            return True
 
         return False
 
@@ -173,94 +542,6 @@ class TeamOrchestrationService:
         normalized = text.lower()
         return any(key in normalized for key in _TEAM_INTENT_KEYWORDS)
 
-    def _build_builtin_team_patch(self, message: str, current_team: dict[str, Any]) -> dict[str, Any]:
-        text = (message or "").strip().lower()
-        if not any(key in text for key in _DEV_TEAM_KEYWORDS):
-            return {}
-
-        goal = current_team.get("team_goal") or "完成一个可交付的软件需求开发项目"
-        scope = current_team.get("task_scope") or (
-            "覆盖需求澄清、任务拆解、前后端实现、测试验收、文档交付；"
-            "不包含生产部署与运维值班。"
-        )
-        base_prompt = (
-            "你是开发团队总调度 Agent。先调用 write_todos 做规划，再通过 task 将任务委派给子 Agent，"
-            "要求每个阶段的产物写入文件系统并可追踪。"
-        )
-        return {
-            "team_goal": goal,
-            "task_scope": scope,
-            "multi_agent_mode": current_team.get("multi_agent_mode")
-            if current_team.get("multi_agent_mode") in TEAM_MODES and current_team.get("multi_agent_mode") != "disabled"
-            else "deep_agents",
-            "communication_protocol": current_team.get("communication_protocol") or "hybrid",
-            "max_parallel_tasks": max(2, self._safe_int(current_team.get("max_parallel_tasks"), 4)),
-            "allow_cross_agent_comm": False,
-            "system_prompt": current_team.get("system_prompt") or base_prompt,
-            "subagents": [
-                {
-                    "name": "product_manager",
-                    "description": "澄清业务目标与验收标准，输出 PRD 与范围边界。",
-                    "system_prompt": (
-                        "你是产品经理子 Agent。仅负责需求澄清与验收标准定义。"
-                        "输出 `prd.md` 与 `acceptance_criteria.md`。"
-                    ),
-                    "depends_on": [],
-                    "communication_mode": "sync",
-                },
-                {
-                    "name": "project_manager",
-                    "description": "基于 PRD 做任务拆解、排期与依赖编排。",
-                    "system_prompt": (
-                        "你是项目经理子 Agent。先调用 write_todos 拆解任务，再形成执行计划。"
-                        "输出 `delivery_plan.md` 与 `task_breakdown.md`。"
-                    ),
-                    "depends_on": ["product_manager"],
-                    "communication_mode": "sync",
-                },
-                {
-                    "name": "frontend_engineer",
-                    "description": "实现前端页面、状态管理与交互逻辑。",
-                    "system_prompt": (
-                        "你是前端工程师子 Agent。仅负责前端实现与自测说明。"
-                        "输出 `frontend_changes.md`，并将关键实现写入文件系统。"
-                    ),
-                    "depends_on": ["project_manager"],
-                    "communication_mode": "hybrid",
-                },
-                {
-                    "name": "backend_engineer",
-                    "description": "实现后端 API、数据模型与服务逻辑。",
-                    "system_prompt": (
-                        "你是后端工程师子 Agent。仅负责后端实现与接口契约。"
-                        "输出 `backend_changes.md` 与 `api_contract.md`。"
-                    ),
-                    "depends_on": ["project_manager"],
-                    "communication_mode": "hybrid",
-                },
-                {
-                    "name": "qa_engineer",
-                    "description": "设计并执行测试，输出缺陷与回归结论。",
-                    "system_prompt": (
-                        "你是测试工程师子 Agent。仅负责测试设计、执行和结果汇总。"
-                        "输出 `test_report.md` 与 `defect_list.md`。"
-                    ),
-                    "depends_on": ["frontend_engineer", "backend_engineer"],
-                    "communication_mode": "sync",
-                },
-                {
-                    "name": "technical_writer",
-                    "description": "沉淀用户文档与交付说明。",
-                    "system_prompt": (
-                        "你是文档工程师子 Agent。仅负责交付文档编写。"
-                        "输出 `release_notes.md` 与 `user_guide.md`。"
-                    ),
-                    "depends_on": ["qa_engineer"],
-                    "communication_mode": "async",
-                },
-            ],
-        }
-
     async def _generate_team_patch_with_llm(self, message: str, current_team: dict[str, Any]) -> dict[str, Any]:
         try:
             model = load_chat_model(app_config.default_model, temperature=0)
@@ -268,12 +549,18 @@ class TeamOrchestrationService:
                 [
                     SystemMessage(
                         content=(
-                            "你是多 Agent 团队架构师。请把用户需求转换成 DynamicAgent 团队 JSON。"
-                            "必须保证职责边界清晰、依赖有向无环、可直接用于 DeepAgents 或 Supervisor。"
-                            f"{_DEEP_AGENTS_CAPABILITY_HINT}"
+                            "你是多 Agent 团队架构师。请把用户需求转换成 DynamicAgent 团队 JSON。\n"
+                            "必须保证职责边界清晰、依赖有向无环。\n\n"
+                            f"{_DEEP_AGENTS_CAPABILITY_HINT}\n\n"
+                            "multi_agent_mode 选择规则：\n"
+                            "- deep_agents: 任务存在可并行阶段，强调吞吐与效率\n"
+                            "- swarm: 需要动态交接、路由转派的一线服务场景\n"
+                            "- supervisor: 依赖链长、审计和可观测性要求高\n"
+                            "- disabled: 单角色即可完成任务\n\n"
                             "输出 JSON 字段：team_goal,task_scope,multi_agent_mode,communication_protocol,"
-                            "max_parallel_tasks,allow_cross_agent_comm,system_prompt,supervisor_system_prompt,subagents。"
-                            "subagents 每项必须包含 name,description,system_prompt,depends_on,communication_mode。"
+                            "max_parallel_tasks,allow_cross_agent_comm,system_prompt,supervisor_system_prompt,subagents。\n"
+                            "subagents 每项必须包含 name,description,system_prompt,depends_on,communication_mode。\n"
+                            "不要使用固定模板名直接映射；必须根据任务目标和范围推导角色分工。\n"
                             "只输出 JSON，不要额外解释。"
                         )
                     ),
@@ -281,8 +568,7 @@ class TeamOrchestrationService:
                         content=(
                             f"用户输入:\n{message}\n\n"
                             f"当前草稿:\n{json.dumps(current_team, ensure_ascii=False)}\n\n"
-                            "如果用户描述是研发或需求开发团队，优先给出 6 角色："
-                            "product_manager,project_manager,frontend_engineer,backend_engineer,qa_engineer,technical_writer。"
+                            "请根据用户需求生成合适的团队配置，并补全缺失字段。"
                         )
                     ),
                 ]
@@ -291,7 +577,7 @@ class TeamOrchestrationService:
             if not isinstance(parsed, dict):
                 return {}
             normalized = self._normalize_team_payload(parsed)
-            if normalized.get("subagents"):
+            if self._has_meaningful_team_content(normalized):
                 return normalized
             return {}
         except Exception as exc:
@@ -316,7 +602,13 @@ class TeamOrchestrationService:
                 return self._extract_json_payload("\n".join(texts))
         return None
 
-    def validate_team(self, team_payload: dict[str, Any], *, strict: bool = True) -> dict[str, Any]:
+    def validate_team(
+        self,
+        team_payload: dict[str, Any],
+        *,
+        strict: bool = True,
+        available_resources: dict[str, list[str]] | None = None,
+    ) -> dict[str, Any]:
         team = self._normalize_team_payload(team_payload)
         logger.debug(
             "Validating team payload: mode={}, subagents={}",
@@ -372,6 +664,9 @@ class TeamOrchestrationService:
 
         permission_matrix = self._build_permission_matrix(members)
         communication_matrix = self._build_communication_matrix(team)
+        resource_validation = self._validate_resource_references(team, available_resources=available_resources)
+        if resource_validation["errors"]:
+            errors.extend(resource_validation["errors"])
 
         return {
             "valid": not errors,
@@ -382,17 +677,49 @@ class TeamOrchestrationService:
             "responsibility_overlap": overlap_pairs,
             "permission_matrix": permission_matrix,
             "communication_matrix": communication_matrix,
+            "resource_validation": resource_validation,
             "normalized_team": team,
         }
 
-    def build_runtime_context(self, team_payload: dict[str, Any], *, strict: bool = True) -> dict[str, Any]:
-        validated = self.validate_team(team_payload, strict=strict)
+    def build_runtime_context(
+        self,
+        team_payload: dict[str, Any],
+        *,
+        strict: bool = True,
+        available_resources: dict[str, list[str]] | None = None,
+        assembly_meta: dict[str, Any] | None = None,
+        mode_recommendation: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        validated = self.validate_team(
+            team_payload,
+            strict=strict,
+            available_resources=available_resources,
+        )
         if strict and not validated["valid"]:
             raise ValueError("; ".join(validated["errors"]))
 
         team = validated["normalized_team"]
         mode = team.get("multi_agent_mode") or "disabled"
         members = team.get("subagents") or []
+        final_mode_recommendation = dict(mode_recommendation or {})
+        if not final_mode_recommendation:
+            final_mode_recommendation = self._recommend_mode(
+                message="",
+                team=team,
+                validation=validated,
+            )
+        runtime_audit = {
+            "built_at": self._utc_now_iso(),
+            "builder_version": "team-orchestration-v2",
+            "build_source": str((assembly_meta or {}).get("pipeline") or "direct_payload"),
+            "assembly_status": str((assembly_meta or {}).get("status") or "unknown"),
+            "attempts": list((assembly_meta or {}).get("attempts") or []),
+            "mode_alignment_events": list((assembly_meta or {}).get("mode_alignment_events") or []),
+            "selected_mode": mode,
+            "recommended_mode": final_mode_recommendation.get("recommended_mode"),
+            "is_selected_mode_recommended": bool(final_mode_recommendation.get("is_selected_mode_recommended")),
+            "blueprint_summary": dict((assembly_meta or {}).get("latest_blueprint") or {}),
+        }
 
         supervisor_prompt = team.get("supervisor_system_prompt") or self._build_supervisor_prompt(
             team,
@@ -417,6 +744,7 @@ class TeamOrchestrationService:
                     "model": member.get("model"),
                     "knowledges": list(member.get("knowledges") or []),
                     "mcps": list(member.get("mcps") or []),
+                    "skills": list(member.get("skills") or []),
                     "depends_on": list(member.get("depends_on") or []),
                     "allowed_targets": list(
                         member.get("allowed_targets")
@@ -438,6 +766,10 @@ class TeamOrchestrationService:
             "allow_cross_agent_comm": bool(team.get("allow_cross_agent_comm", False)),
             "system_prompt": system_prompt,
             "supervisor_system_prompt": supervisor_prompt,
+            "tools": list(team.get("tools") or []),
+            "knowledges": list(team.get("knowledges") or []),
+            "mcps": list(team.get("mcps") or []),
+            "skills": list(team.get("skills") or []),
             "subagents": runtime_subagents,
             "team_policy": {
                 "dependency_order": validated["dependency_order"],
@@ -445,6 +777,9 @@ class TeamOrchestrationService:
                 "permission_matrix": validated["permission_matrix"],
                 "communication_matrix": validated["communication_matrix"],
                 "warnings": validated["warnings"],
+                "resource_validation": validated["resource_validation"],
+                "mode_recommendation": final_mode_recommendation,
+                "runtime_audit": runtime_audit,
             },
         }
 
@@ -520,6 +855,7 @@ class TeamOrchestrationService:
         }
 
     def _parse_user_message(self, message: str) -> dict[str, Any]:
+        """Parse user message for explicit formatted fields."""
         payload = self._extract_json_payload(message)
         if payload is not None:
             return payload
@@ -552,7 +888,7 @@ class TeamOrchestrationService:
                 field = assign.group("field").strip()
                 value = assign.group("value").strip()
                 member = draft_members.setdefault(name, {"name": name})
-                if field in {"tools", "knowledges", "mcps", "depends_on", "allowed_targets"}:
+                if field in {"tools", "knowledges", "mcps", "skills", "depends_on", "allowed_targets"}:
                     member[field] = self._split_list(value)
                 elif field == "max_retries":
                     member[field] = self._safe_int(value, 1)
@@ -576,6 +912,72 @@ class TeamOrchestrationService:
         if draft_members:
             result["subagents"] = list(draft_members.values())
 
+        return result
+
+    def _parse_user_message_with_context(
+        self,
+        message: str,
+        current_draft: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Parse user message with awareness of what's missing in current draft.
+        
+        If user provides a natural language response and the draft is missing
+        required fields (team_goal, task_scope), intelligently map the response
+        to the appropriate field.
+        """
+        # First, try standard parsing
+        result = self._parse_user_message(message)
+        
+        # If we got explicit fields, return them
+        if result.get("team_goal") or result.get("task_scope") or result.get("subagents"):
+            return result
+        
+        text = message.strip()
+        if not text:
+            return result
+        
+        # Handle confirmation messages - if draft is already complete, just return empty
+        # to keep the current draft unchanged
+        confirmation_keywords = {"确认", "好的", "ok", "yes", "是的", "同意", "可以", "行", "没问题"}
+        if text.lower() in confirmation_keywords or len(text) <= 3:
+            # User is confirming, don't try to parse as goal/scope
+            return result
+        
+        # Check if it looks like a JSON or structured input - if so, don't auto-map
+        if "{" in text or "```" in text:
+            return result
+        
+        # Check what's missing in current draft and try to intelligently fill it
+        missing_goal = not current_draft.get("team_goal")
+        missing_scope = not current_draft.get("task_scope")
+        
+        # If user input looks like a goal/objective description (not a command)
+        # and team_goal is missing, treat it as team_goal
+        if missing_goal:
+            # Heuristics for goal-like input:
+            # - Contains words like "服务", "处理", "完成", "实现", etc.
+            # - Is a relatively short statement (< 200 chars)
+            # - Doesn't look like a command (not starting with "帮我", "请", etc.)
+            goal_indicators = {"服务", "处理", "完成", "实现", "提供", "帮助", "解决", "支持",
+                               "管理", "分析", "创建", "开发", "构建", "优化", "改进"}
+            command_prefixes = {"帮我", "请", "我需要", "我想", "给我", "创建一个"}
+            
+            text_lower = text.lower()
+            is_goal_like = any(ind in text for ind in goal_indicators)
+            is_command = any(text.startswith(pref) for pref in command_prefixes)
+            
+            # If it looks like a goal statement (not a command) and is reasonably short
+            if (is_goal_like or len(text) < 100) and not is_command:
+                result["team_goal"] = text
+                return result
+        
+        # If team_goal exists but task_scope is missing, and user provides additional context
+        if not missing_goal and missing_scope:
+            scope_indicators = {"范围", "包括", "覆盖", "不包括", "职责", "边界"}
+            if any(ind in text for ind in scope_indicators) or len(text) < 150:
+                result["task_scope"] = text
+                return result
+        
         return result
 
     def _extract_json_payload(self, message: str) -> dict[str, Any] | None:
@@ -650,6 +1052,10 @@ class TeamOrchestrationService:
             "communication_protocol": communication_protocol,
             "max_parallel_tasks": self._safe_int(context.get("max_parallel_tasks"), 4),
             "allow_cross_agent_comm": bool(context.get("allow_cross_agent_comm", False)),
+            "tools": self._normalize_list_field(context.get("tools")),
+            "knowledges": self._normalize_list_field(context.get("knowledges")),
+            "mcps": self._normalize_list_field(context.get("mcps")),
+            "skills": self._normalize_list_field(context.get("skills")),
             "subagents": members,
         }
 
@@ -663,6 +1069,7 @@ class TeamOrchestrationService:
             "model": str(data.get("model") or "").strip() or None,
             "knowledges": self._normalize_list_field(data.get("knowledges")),
             "mcps": self._normalize_list_field(data.get("mcps") or data.get("mcp")),
+            "skills": self._normalize_list_field(data.get("skills")),
             "depends_on": self._normalize_list_field(data.get("depends_on")),
             "allowed_targets": self._normalize_list_field(data.get("allowed_targets")),
             "communication_mode": (
@@ -672,6 +1079,193 @@ class TeamOrchestrationService:
             ),
             "max_retries": self._safe_int(data.get("max_retries"), 1),
             "plugin": str(data.get("plugin") or "default").strip() or "default",
+        }
+
+    def _recommend_mode(
+        self,
+        *,
+        message: str,
+        team: dict[str, Any],
+        validation: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Intelligently recommend the best multi-agent mode based on context.
+        
+        Factors considered:
+        1. Explicit user keywords (highest priority)
+        2. Team structure analysis (member count, dependencies)
+        3. Communication patterns (handoff vs parallel vs sequential)
+        4. Resource configuration (tools, MCPs distribution)
+        """
+        text = (message or "").lower()
+        selected_mode = team.get("multi_agent_mode") or "disabled"
+        members = team.get("subagents") or []
+        execution_groups = validation.get("execution_groups") or []
+        has_parallel_stage = any(isinstance(group, list) and len(group) > 1 for group in execution_groups)
+        
+        # Analyze team structure for better recommendations
+        member_count = len(members)
+        has_dependencies = any(m.get("depends_on") for m in members if isinstance(m, dict))
+        has_default_agent = any(m.get("is_default") for m in members if isinstance(m, dict))
+        
+        # Check for handoff-like patterns in member descriptions
+        handoff_patterns = {"转接", "转给", "交接", "handoff", "transfer", "route to", "路由到"}
+        member_descs = " ".join(m.get("description", "") for m in members if isinstance(m, dict)).lower()
+        has_handoff_pattern = any(p in member_descs or p in text for p in handoff_patterns)
+        
+        # Analyze resource distribution across agents
+        tools_per_agent = [len(m.get("tools", [])) for m in members if isinstance(m, dict)]
+        mcps_per_agent = [len(m.get("mcps", [])) for m in members if isinstance(m, dict)]
+        has_specialized_agents = tools_per_agent and max(tools_per_agent) > 0 and min(tools_per_agent) == 0
+        
+        # Score-based recommendation
+        scores = {
+            "disabled": 0,
+            "supervisor": 0,
+            "deep_agents": 0,
+            "swarm": 0,
+        }
+        reasons = []
+        
+        # 1. Explicit keywords (highest weight)
+        if "disabled" in text or "单智能体" in text:
+            scores["disabled"] += 100
+            reasons.append("用户明确指定单智能体模式")
+        
+        if any(key in text for key in _SWARM_HINT_KEYWORDS):
+            scores["swarm"] += 80
+            reasons.append("用户输入包含 Swarm/Handoff 相关关键词")
+        
+        if any(key in text for key in _SUPERVISOR_HINT_KEYWORDS):
+            scores["supervisor"] += 80
+            reasons.append("用户输入强调可观测与治理")
+        
+        if any(key in text for key in _DEEP_AGENTS_HINT_KEYWORDS):
+            scores["deep_agents"] += 80
+            reasons.append("用户输入强调并行与效率")
+        
+        # 2. Team structure analysis
+        if member_count <= 1:
+            scores["disabled"] += 50
+            reasons.append("团队成员较少")
+        elif member_count >= 5:
+            scores["supervisor"] += 20
+            reasons.append("团队成员较多，Supervisor 便于管理")
+        
+        # 3. Communication pattern analysis
+        if has_handoff_pattern:
+            scores["swarm"] += 40
+            reasons.append("检测到 Agent 间交接模式")
+        
+        if has_default_agent and member_count > 2:
+            scores["swarm"] += 30
+            reasons.append("存在默认入口 Agent，符合 Swarm 模式")
+        
+        if has_parallel_stage:
+            scores["deep_agents"] += 40
+            reasons.append("依赖分组存在可并行阶段")
+        
+        if has_dependencies and not has_parallel_stage:
+            scores["supervisor"] += 30
+            reasons.append("存在依赖关系但无明显并行收益")
+        
+        # 4. Resource distribution analysis
+        if has_specialized_agents:
+            scores["swarm"] += 20
+            scores["supervisor"] += 20
+            reasons.append("Agent 职责分工明确")
+        
+        # Determine recommended mode
+        max_score = max(scores.values())
+        if max_score == 0:
+            # Default fallback logic
+            if member_count <= 1:
+                recommended = "disabled"
+                reason = "当前团队成员较少，单智能体更直接。"
+            else:
+                recommended = "supervisor"
+                reason = "需要多角色协作且无明确专业化需求，Supervisor 更稳健。"
+        else:
+            recommended = max(scores, key=scores.get)
+            reason = "；".join(reasons[:3]) if reasons else "基于团队配置分析。"
+        
+        # Build detailed recommendation
+        mode_descriptions = {
+            "disabled": "单智能体模式 - 适合简单任务",
+            "supervisor": "Supervisor 模式 - 可观测、易调试，适合复杂工作流",
+            "deep_agents": "Deep Agents 模式 - 高效并行，适合大负载任务",
+            "swarm": "Swarm Handoff 模式 - 动态交接，适合客服/销售场景",
+        }
+
+        return {
+            "recommended_mode": recommended,
+            "reason": reason,
+            "selected_mode": selected_mode,
+            "is_selected_mode_recommended": selected_mode == recommended,
+            "mode_scores": scores,
+            "mode_description": mode_descriptions.get(recommended, ""),
+            "analysis_factors": reasons,
+        }
+
+    def _validate_resource_references(
+        self,
+        team: dict[str, Any],
+        *,
+        available_resources: dict[str, list[str]] | None = None,
+    ) -> dict[str, Any]:
+        provided_categories = set((available_resources or {}).keys()) if available_resources is not None else set()
+        normalized_available = {
+            "tools": sorted(set(self._normalize_list_field((available_resources or {}).get("tools")))),
+            "knowledges": sorted(set(self._normalize_list_field((available_resources or {}).get("knowledges")))),
+            "mcps": sorted(set(self._normalize_list_field((available_resources or {}).get("mcps")))),
+            "skills": sorted(set(self._normalize_list_field((available_resources or {}).get("skills")))),
+        }
+        available_set = {key: set(values) for key, values in normalized_available.items()}
+
+        invalid = {"tools": [], "knowledges": [], "mcps": [], "skills": []}
+        refs = self._collect_resource_refs(team)
+        for category in ("tools", "knowledges", "mcps", "skills"):
+            if available_resources is None or category not in provided_categories:
+                continue
+            invalid_items = sorted({name for name in refs[category] if name not in available_set[category]})
+            invalid[category] = invalid_items
+
+        errors: list[str] = []
+        if invalid["tools"]:
+            errors.append(f"存在无效工具: {', '.join(invalid['tools'])}")
+        if invalid["knowledges"]:
+            errors.append(f"存在无权限或不存在的知识库: {', '.join(invalid['knowledges'])}")
+        if invalid["mcps"]:
+            errors.append(f"存在无效 MCP 服务器: {', '.join(invalid['mcps'])}")
+        if invalid["skills"]:
+            errors.append(f"存在无效 Skills: {', '.join(invalid['skills'])}")
+
+        return {
+            "valid": not errors,
+            "errors": errors,
+            "invalid": invalid,
+            "available": normalized_available,
+        }
+
+    def _collect_resource_refs(self, team: dict[str, Any]) -> dict[str, list[str]]:
+        refs = {
+            "tools": list(team.get("tools") or []),
+            "knowledges": list(team.get("knowledges") or []),
+            "mcps": list(team.get("mcps") or []),
+            "skills": list(team.get("skills") or []),
+        }
+        for member in team.get("subagents") or []:
+            if not isinstance(member, dict):
+                continue
+            refs["tools"].extend(member.get("tools") or [])
+            refs["knowledges"].extend(member.get("knowledges") or [])
+            refs["mcps"].extend(member.get("mcps") or [])
+            refs["skills"].extend(member.get("skills") or [])
+
+        return {
+            "tools": sorted(set(self._normalize_list_field(refs["tools"]))),
+            "knowledges": sorted(set(self._normalize_list_field(refs["knowledges"]))),
+            "mcps": sorted(set(self._normalize_list_field(refs["mcps"]))),
+            "skills": sorted(set(self._normalize_list_field(refs["skills"]))),
         }
 
     def _validate_dependencies(self, team: dict[str, Any]) -> tuple[list[str], list[str], list[list[str]]]:
@@ -767,6 +1361,7 @@ class TeamOrchestrationService:
                 "tools": sorted(set(member.get("tools") or [])),
                 "knowledges": sorted(set(member.get("knowledges") or [])),
                 "mcps": sorted(set(member.get("mcps") or [])),
+                "skills": sorted(set(member.get("skills") or [])),
             }
         return matrix
 
@@ -974,8 +1569,13 @@ class TeamOrchestrationService:
             "tools": sorted(set(member.get("tools") or [])),
             "knowledges": sorted(set(member.get("knowledges") or [])),
             "mcps": sorted(set(member.get("mcps") or [])),
+            "skills": sorted(set(member.get("skills") or [])),
         }
         return json.dumps(material, ensure_ascii=False, sort_keys=True)
+
+    @staticmethod
+    def _utc_now_iso() -> str:
+        return datetime.now(UTC).isoformat()
 
 
 team_orchestration_service = TeamOrchestrationService()
