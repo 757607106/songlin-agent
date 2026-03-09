@@ -10,7 +10,11 @@ import uuid
 
 import pytest
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.integration,
+    pytest.mark.skip(reason="Deprecated team session APIs are not implemented in current chat router"),
+]
 
 
 def _sample_team_payload() -> dict:

@@ -198,48 +198,27 @@
       <div v-if="hasSubagents" class="info-card">
         <div class="card-header">
           <Users :size="20" />
-          <h2>子智能体 ({{ subagents.length }})</h2>
-          <a-button v-if="isEditing" type="dashed" size="small" @click="addSubagent">
-            <Plus :size="14" /> 添加
-          </a-button>
+          <h2>子智能体 ({{ (isEditing ? editForm.subagents || [] : subagents).length }})</h2>
         </div>
         <div class="card-body">
-          <div class="subagents-grid">
-            <div
-              v-for="(agent, idx) in isEditing ? editForm.subagents : subagents"
-              :key="idx"
-              class="subagent-card"
-            >
-              <template v-if="isEditing">
-                <div class="subagent-edit-header">
-                  <a-input v-model:value="agent.name" placeholder="名称" />
-                  <a-button type="text" danger size="small" @click="removeSubagent(idx)">
-                    <Trash2 :size="14" />
-                  </a-button>
-                </div>
-                <a-input v-model:value="agent.description" placeholder="职责描述" class="mt-8" />
-                <a-textarea
-                  v-model:value="agent.system_prompt"
-                  placeholder="系统提示词"
-                  :rows="2"
-                  class="mt-8"
-                />
-              </template>
-              <template v-else>
-                <div class="subagent-header">
-                  <Bot :size="18" />
-                  <span class="subagent-name">{{ agent.name || `子智能体 ${idx + 1}` }}</span>
-                </div>
-                <p class="subagent-desc">{{ agent.description || '暂无描述' }}</p>
-                <div class="subagent-tags">
-                  <a-tag v-for="tool in (agent.tools || []).slice(0, 3)" :key="tool" size="small">
-                    {{ tool }}
-                  </a-tag>
-                  <span v-if="(agent.tools || []).length > 3" class="more-hint">
-                    +{{ agent.tools.length - 3 }}
-                  </span>
-                </div>
-              </template>
+          <!-- 编辑模式：使用 SubagentEditor -->
+          <SubagentEditor v-if="isEditing" v-model="editForm.subagents" />
+          <!-- 只读模式：卡片展示 -->
+          <div v-else class="subagents-grid">
+            <div v-for="(agent, idx) in subagents" :key="idx" class="subagent-card">
+              <div class="subagent-header">
+                <Bot :size="18" />
+                <span class="subagent-name">{{ agent.name || `子智能体 ${idx + 1}` }}</span>
+              </div>
+              <p class="subagent-desc">{{ agent.description || '暂无描述' }}</p>
+              <div class="subagent-tags">
+                <a-tag v-for="tool in (agent.tools || []).slice(0, 3)" :key="tool" size="small">
+                  {{ tool }}
+                </a-tag>
+                <span v-if="(agent.tools || []).length > 3" class="more-hint">
+                  +{{ agent.tools.length - 3 }}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -334,6 +313,7 @@ import {
 } from 'lucide-vue-next'
 import { agentApi } from '@/apis/agent_api'
 import { useDatabaseStore } from '@/stores/database'
+import SubagentEditor from '@/components/SubagentEditor.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -348,6 +328,7 @@ const deleting = ref(false)
 const isEditing = ref(false)
 const agentData = ref(null)
 const editForm = ref({})
+const builtinConfig = ref({})
 
 // 选项数据
 const toolOptions = ref([])
@@ -362,7 +343,7 @@ const isBuiltin = computed(() => agentType.value === 'builtin')
 
 const configData = computed(() => {
   if (isBuiltin.value) {
-    return agentData.value?.configurable_items || {}
+    return builtinConfig.value || {}
   }
   return agentData.value?.config_json?.context || agentData.value?.config_json || {}
 })
@@ -394,11 +375,25 @@ const modeIcon = computed(() => {
 })
 
 const hasSubagents = computed(() => {
+  if (isEditing.value) {
+    if (isBuiltin.value) return false
+    const editSubagents = Array.isArray(editForm.value?.subagents) ? editForm.value.subagents : []
+    return (editForm.value?.multi_agent_mode || 'disabled') !== 'disabled' || editSubagents.length > 0
+  }
   return modeValue.value !== 'disabled' || subagents.value.length > 0
 })
 
 const subagents = computed(() => configData.value?.subagents || [])
 const examples = computed(() => agentData.value?.examples || [])
+
+const normalizeConfig = (config) => {
+  if (!config || typeof config !== 'object') return {}
+  if (config.context && typeof config.context === 'object') return config.context
+  if (config.config_json && typeof config.config_json === 'object') {
+    return config.config_json.context || config.config_json
+  }
+  return config
+}
 
 // 方法
 const fetchAgentData = async () => {
@@ -408,10 +403,13 @@ const fetchAgentData = async () => {
       // 获取内置智能体详情
       const detail = await agentApi.getAgentDetail(agentId.value)
       agentData.value = detail
+      const configRes = await agentApi.getAgentConfig(agentId.value)
+      builtinConfig.value = normalizeConfig(configRes?.config)
     } else {
       // 获取自定义智能体配置
       const res = await agentApi.getAgentConfigProfile(DYNAMIC_AGENT_ID, agentId.value)
       agentData.value = res.config || res
+      builtinConfig.value = {}
     }
   } catch (e) {
     console.error('获取智能体信息失败:', e)
@@ -470,11 +468,13 @@ const enterEditMode = () => {
     editForm.value = {
       name: agentData.value?.name || '',
       description: agentData.value?.description || '',
+      multi_agent_mode: 'disabled',
       system_prompt: configData.value?.system_prompt || '',
       tools: configData.value?.tools || [],
       knowledges: configData.value?.knowledges || [],
       mcps: configData.value?.mcps || [],
       skills: configData.value?.skills || [],
+      subagents: [],
       examples: [...(agentData.value?.examples || [])]
     }
   } else {
@@ -547,22 +547,6 @@ const saveChanges = async () => {
   } finally {
     saving.value = false
   }
-}
-
-const addSubagent = () => {
-  editForm.value.subagents.push({
-    name: '',
-    description: '',
-    system_prompt: '',
-    tools: [],
-    knowledges: [],
-    mcps: [],
-    skills: []
-  })
-}
-
-const removeSubagent = (idx) => {
-  editForm.value.subagents.splice(idx, 1)
 }
 
 const deleteAgent = async () => {
@@ -887,19 +871,9 @@ watch(
   align-items: center;
 }
 
-.subagent-edit-header {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
 .more-hint {
   font-size: 12px;
   color: var(--gray-500);
-}
-
-.mt-8 {
-  margin-top: 8px;
 }
 
 .examples-editor {

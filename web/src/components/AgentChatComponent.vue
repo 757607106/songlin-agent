@@ -260,9 +260,9 @@ const exampleQuestions = computed(() => {
     const agent = agents.value.find((a) => a.id === agentId)
     examples = agent ? agent.examples || [] : []
   }
-  return examples.map((text, index) => ({
+  return examples.map((item, index) => ({
     id: index + 1,
-    text: text
+    text: typeof item === 'string' ? item : item.text || String(item)
   }))
 })
 

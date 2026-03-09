@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func, select
 
 from src.storage.postgres.manager import pg_manager
@@ -39,17 +40,34 @@ class RuntimeRepository:
             result = await session.execute(stmt)
             return list(result.scalars().all())
 
-    async def get_next_event_seq(self, run_id: str) -> int:
-        async with pg_manager.get_async_session_context() as session:
-            result = await session.execute(select(func.max(RunEvent.seq)).where(RunEvent.run_id == run_id))
-            max_seq = result.scalar_one_or_none()
-            return int(max_seq or 0) + 1
-
     async def add_event(self, event_data: dict[str, Any]) -> RunEvent:
-        async with pg_manager.get_async_session_context() as session:
-            record = RunEvent(**event_data)
-            session.add(record)
-            return record
+        run_id = str(event_data.get("run_id") or "").strip()
+        if not run_id:
+            raise ValueError("run_id is required for add_event")
+
+        explicit_seq = event_data.get("seq")
+        max_retries = 5
+        for attempt in range(max_retries):
+            async with pg_manager.get_async_session_context() as session:
+                try:
+                    # Serialize per-run sequence allocation when database supports row locking.
+                    await session.execute(select(AgentRun.run_id).where(AgentRun.run_id == run_id).with_for_update())
+                    if explicit_seq is None:
+                        result = await session.execute(select(func.max(RunEvent.seq)).where(RunEvent.run_id == run_id))
+                        seq = int(result.scalar_one_or_none() or 0) + 1
+                    else:
+                        seq = int(explicit_seq)
+                    payload = dict(event_data)
+                    payload["seq"] = seq
+                    record = RunEvent(**payload)
+                    session.add(record)
+                    await session.flush()
+                    return record
+                except IntegrityError:
+                    await session.rollback()
+                    if attempt >= max_retries - 1:
+                        raise
+        raise RuntimeError(f"failed to add event for run_id={run_id}")
 
     async def list_events(
         self,

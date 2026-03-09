@@ -217,10 +217,6 @@ async def list_threads_view(
     )
     latest_message_map = await conv_repo.get_latest_messages_by_conversation_ids([conv.id for conv in conversations])
 
-    visible_conversations = [
-        conv for conv in conversations if (conv.extra_metadata or {}).get("session_type") != "team_builder"
-    ]
-
     return [
         {
             "id": conv.thread_id,
@@ -238,7 +234,7 @@ async def list_threads_view(
             "created_at": conv.created_at.isoformat(),
             "updated_at": conv.updated_at.isoformat(),
         }
-        for conv in visible_conversations
+        for conv in conversations
     ]
 
 

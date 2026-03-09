@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import os
+import sys
 import uuid
 
 import pytest
+
+# Add project root to path for imports.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+os.environ.setdefault("YUXI_SKIP_APP_INIT", "1")
 
 from src.services.runtime_service import runtime_service
 
@@ -161,3 +168,151 @@ async def test_runtime_events_support_server_filters(test_client, admin_headers)
     assert with_cursor.status_code == 200, with_cursor.text
     assert with_cursor.json().get("items") == []
     assert with_cursor.json().get("next_cursor") == cursor
+
+
+async def test_runtime_events_seq_monotonic_under_parallel_appends(test_client, admin_headers):
+    thread_id = f"thread-{uuid.uuid4().hex[:10]}"
+    idem_key = f"idem-{uuid.uuid4().hex}"
+    create_response = await test_client.post(
+        "/api/runtime/runs",
+        json={
+            "agent_id": "DynamicAgent",
+            "thread_id": thread_id,
+            "mode": "hybrid",
+            "input": {"query": "parallel events"},
+        },
+        headers={**admin_headers, "X-Idempotency-Key": idem_key},
+    )
+    assert create_response.status_code == 200, create_response.text
+    run_id = create_response.json().get("run_id")
+    assert run_id
+
+    async def _append(idx: int):
+        await runtime_service.append_event(
+            run_id=run_id,
+            event_type="tool.invoke",
+            actor_type="tool",
+            actor_name=f"tool-{idx}",
+            payload={"idx": idx},
+        )
+
+    await asyncio.gather(*[_append(i) for i in range(20)])
+
+    events_response = await test_client.get(f"/api/runtime/runs/{run_id}/events?limit=500", headers=admin_headers)
+    assert events_response.status_code == 200, events_response.text
+    items = events_response.json().get("items") or []
+    seqs = [int(item["seq"]) for item in items]
+    assert seqs == sorted(seqs)
+    assert len(seqs) == len(set(seqs))
+
+
+async def test_runtime_cancel_sets_cancel_requested_flag(test_client, admin_headers):
+    thread_id = f"thread-{uuid.uuid4().hex[:10]}"
+    idem_key = f"idem-{uuid.uuid4().hex}"
+    create_response = await test_client.post(
+        "/api/runtime/runs",
+        json={
+            "agent_id": "DynamicAgent",
+            "thread_id": thread_id,
+            "mode": "hybrid",
+            "input": {"query": "cancel me"},
+        },
+        headers={**admin_headers, "X-Idempotency-Key": idem_key},
+    )
+    assert create_response.status_code == 200, create_response.text
+    run_id = create_response.json().get("run_id")
+    assert run_id
+
+    dispatch = await runtime_service.transition_status(
+        run_id=run_id,
+        next_status="dispatching",
+        actor_type="system",
+        actor_name="pytest",
+    )
+    assert dispatch
+    running = await runtime_service.transition_status(
+        run_id=run_id,
+        next_status="running",
+        actor_type="system",
+        actor_name="pytest",
+    )
+    assert running
+
+    cancel_response = await test_client.post(f"/api/runtime/runs/{run_id}/cancel", headers=admin_headers)
+    assert cancel_response.status_code == 200, cancel_response.text
+
+    detail_response = await test_client.get(f"/api/runtime/runs/{run_id}", headers=admin_headers)
+    assert detail_response.status_code == 200, detail_response.text
+    detail = detail_response.json()
+    assert detail.get("status") == "cancelled"
+    assert detail.get("cancel_requested") is True
+
+
+async def test_runtime_run_mode_can_be_aligned_after_creation(test_client, admin_headers):
+    thread_id = f"thread-{uuid.uuid4().hex[:10]}"
+    idem_key = f"idem-{uuid.uuid4().hex}"
+    create_response = await test_client.post(
+        "/api/runtime/runs",
+        json={
+            "agent_id": "DynamicAgent",
+            "thread_id": thread_id,
+            "mode": "hybrid",
+            "input": {"query": "mode alignment"},
+        },
+        headers={**admin_headers, "X-Idempotency-Key": idem_key},
+    )
+    assert create_response.status_code == 200, create_response.text
+    run_id = create_response.json().get("run_id")
+    assert run_id
+
+    updated = await runtime_service.update_run_fields(run_id, mode="deep_agents")
+    assert updated is not None
+    assert updated.get("mode") == "deep_agents"
+
+    detail_response = await test_client.get(f"/api/runtime/runs/{run_id}", headers=admin_headers)
+    assert detail_response.status_code == 200, detail_response.text
+    assert detail_response.json().get("mode") == "deep_agents"
+
+
+async def test_runtime_terminal_transition_emits_single_terminal_event(test_client, admin_headers):
+    thread_id = f"thread-{uuid.uuid4().hex[:10]}"
+    idem_key = f"idem-{uuid.uuid4().hex}"
+    create_response = await test_client.post(
+        "/api/runtime/runs",
+        json={
+            "agent_id": "DynamicAgent",
+            "thread_id": thread_id,
+            "mode": "hybrid",
+            "input": {"query": "terminal event"},
+        },
+        headers={**admin_headers, "X-Idempotency-Key": idem_key},
+    )
+    assert create_response.status_code == 200, create_response.text
+    run_id = create_response.json().get("run_id")
+    assert run_id
+
+    await runtime_service.transition_status(
+        run_id=run_id,
+        next_status="dispatching",
+        actor_type="system",
+        actor_name="pytest",
+    )
+    await runtime_service.transition_status(
+        run_id=run_id,
+        next_status="running",
+        actor_type="system",
+        actor_name="pytest",
+    )
+    await runtime_service.transition_status(
+        run_id=run_id,
+        next_status="failed",
+        actor_type="system",
+        actor_name="pytest",
+        reason="boom",
+    )
+
+    events_response = await test_client.get(f"/api/runtime/runs/{run_id}/events?limit=500", headers=admin_headers)
+    assert events_response.status_code == 200, events_response.text
+    items = events_response.json().get("items") or []
+    failed_events = [item for item in items if item.get("event_type") == "run.failed"]
+    assert len(failed_events) == 1

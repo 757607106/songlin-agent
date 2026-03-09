@@ -123,11 +123,9 @@ class RuntimeService:
         span_id: str | None = None,
         parent_span_id: str | None = None,
     ) -> dict[str, Any]:
-        seq = await self._repo.get_next_event_seq(run_id)
         record = await self._repo.add_event(
             {
                 "run_id": run_id,
-                "seq": seq,
                 "event_type": event_type,
                 "actor_type": actor_type,
                 "actor_name": actor_name,
@@ -138,6 +136,15 @@ class RuntimeService:
             }
         )
         return record.to_dict()
+
+    async def update_run_fields(self, run_id: str, **fields: Any) -> dict[str, Any] | None:
+        if not fields:
+            return await self.get_run(run_id)
+        fields["updated_at"] = utc_now_naive()
+        updated = await self._repo.update_run(run_id, **fields)
+        if not updated:
+            return None
+        return updated.to_dict()
 
     async def list_events(
         self,

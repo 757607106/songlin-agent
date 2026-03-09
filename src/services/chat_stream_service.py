@@ -104,6 +104,31 @@ async def _runtime_transition(
         logger.debug(f"Skip runtime transition `{next_status}` for run `{run_id}`: {exc}")
 
 
+async def _runtime_sync_run_mode(*, meta: dict | None, mode: str) -> None:
+    run_id = _extract_run_id(meta)
+    normalized_mode = str(mode or "").strip()
+    if not run_id or not normalized_mode:
+        return
+    try:
+        await runtime_service.update_run_fields(run_id, mode=normalized_mode)
+    except Exception as exc:
+        logger.debug(f"Skip runtime mode sync for run `{run_id}`: {exc}")
+
+
+async def _runtime_is_cancel_requested(*, meta: dict | None) -> bool:
+    run_id = _extract_run_id(meta)
+    if not run_id:
+        return False
+    try:
+        run = await runtime_service.get_run(run_id)
+    except Exception as exc:
+        logger.debug(f"Skip runtime cancel check for run `{run_id}`: {exc}")
+        return False
+    if not run:
+        return False
+    return bool(run.get("cancel_requested")) or str(run.get("status") or "") == "cancelled"
+
+
 async def _iterate_with_next_timeout(stream_source, timeout_seconds: int):
     pending_next = asyncio.create_task(stream_source.__anext__())
     timeout_count = 0
@@ -706,6 +731,7 @@ async def stream_agent_chat(
         if dynamic_graph_kwargs is not None
         else {"user_id": user_id, "department_id": department_id}
     )
+    await _runtime_sync_run_mode(meta=meta, mode=team_execution_mode)
 
     thread_lock = _thread_stream_locks[thread_id]
     if thread_lock.locked():
@@ -773,6 +799,10 @@ async def stream_agent_chat(
                 "runtime_audit": runtime_audit if isinstance(runtime_audit, dict) else {},
             },
         )
+        if await _runtime_is_cancel_requested(meta=meta):
+            await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_IDLE, has_interrupt=False)
+            yield make_chunk(status="interrupted", message="运行已取消", meta=meta)
+            return
 
         try:
             await conv_repo.add_message_by_thread_id(
@@ -840,6 +870,7 @@ async def stream_agent_chat(
         pending_agent_state_task: asyncio.Task | None = None
         current_subagent = None  # 跟踪当前执行的子 Agent
         seen_supervisor_entry_fingerprints: set[str] = set()
+        last_cancel_check_ts = 0.0
 
         async def _load_agent_state_snapshot() -> dict:
             nonlocal state_graph
@@ -869,6 +900,13 @@ async def stream_agent_chat(
             agent.stream_messages(messages, input_context=input_context),
             AGENT_STREAM_NEXT_TIMEOUT_SECONDS,
         ):
+            now_ts = asyncio.get_event_loop().time()
+            if now_ts - last_cancel_check_ts >= 1.0:
+                last_cancel_check_ts = now_ts
+                if await _runtime_is_cancel_requested(meta=meta):
+                    await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_IDLE, has_interrupt=False)
+                    yield make_chunk(status="interrupted", message="运行已取消", meta=meta)
+                    return
             async for state_chunk in _emit_pending_agent_state():
                 yield state_chunk
 
@@ -1005,6 +1043,10 @@ async def stream_agent_chat(
             pending_agent_state_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await pending_agent_state_task
+        if await _runtime_is_cancel_requested(meta=meta):
+            await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_IDLE, has_interrupt=False)
+            yield make_chunk(status="interrupted", message="运行已取消", meta=meta)
+            return
 
         if conf.enable_content_guard and hasattr(full_msg, "content") and await content_guard.check(full_msg.content):
             await save_partial_message(conv_repo, thread_id, full_msg, "content_guard_blocked")
@@ -1074,13 +1116,6 @@ async def stream_agent_chat(
             actor_type="system",
             actor_name="chat_stream_service",
             reason="stream_finished",
-        )
-        await _runtime_append_event(
-            meta=meta,
-            event_type="run.completed",
-            actor_type="system",
-            actor_name="chat_stream_service",
-            payload={"thread_id": thread_id},
         )
 
         yield make_chunk(status="finished", meta=meta)
@@ -1153,13 +1188,6 @@ async def stream_agent_chat(
             actor_type="system",
             actor_name="chat_stream_service",
             reason=error_type,
-        )
-        await _runtime_append_event(
-            meta=meta,
-            event_type="run.failed",
-            actor_type="system",
-            actor_name="chat_stream_service",
-            payload={"error_type": error_type, "error_message": error_msg},
         )
         yield make_chunk(status="error", error_type=error_type, error_message=error_msg, meta=meta)
     finally:
