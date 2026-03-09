@@ -311,29 +311,6 @@
         >
           保存
         </a-button>
-
-        <a-tooltip :title="isCurrentDefault ? '当前已是默认配置' : '设为默认配置'">
-          <a-button type="text" shape="circle" class="icon-btn" @click="setAsDefault">
-            <Star
-              :size="18"
-              :fill="isCurrentDefault ? 'currentColor' : 'none'"
-              :class="{ 'is-default': isCurrentDefault }"
-            />
-          </a-button>
-        </a-tooltip>
-
-        <a-tooltip title="删除配置">
-          <a-button
-            type="text"
-            shape="circle"
-            danger
-            class="icon-btn"
-            @click="confirmDeleteConfig"
-            :disabled="isDeletingConfig"
-          >
-            <Trash2 :size="18" />
-          </a-button>
-        </a-tooltip>
       </div>
     </div>
 
@@ -403,8 +380,8 @@
 
 <script setup>
 import { ref, computed, nextTick, watch } from 'vue'
-import { message, Modal } from 'ant-design-vue'
-import { X, Trash2, Check, Plus, Search, Star, Sparkles } from 'lucide-vue-next'
+import { message } from 'ant-design-vue'
+import { X, Check, Plus, Search, Sparkles } from 'lucide-vue-next'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import SubagentEditor from '@/components/SubagentEditor.vue'
 import { agentApi } from '@/apis/agent_api'
@@ -455,9 +432,6 @@ const {
   availableTools,
   selectedAgent,
   selectedAgentId,
-  selectedAgentConfigId,
-  selectedConfigSummary,
-  agentConfigs,
   agentConfig,
   configurableItems
 } = storeToRefs(agentStore)
@@ -477,12 +451,7 @@ const isEmptyConfig = computed(() => {
   return !selectedAgentId.value || Object.keys(configurableItems.value).length === 0
 })
 
-const isCurrentDefault = computed(() => {
-  return !!selectedConfigSummary.value?.is_default
-})
-
 const isSavingConfig = ref(false)
-const isDeletingConfig = ref(false)
 
 const hasOtherConfigs = computed(() => {
   if (isEmptyConfig.value) return false
@@ -907,47 +876,6 @@ const saveConfig = async () => {
   }
 }
 
-const setAsDefault = async () => {
-  if (!selectedAgentId.value || !selectedAgentConfigId.value) return
-  try {
-    await agentStore.setSelectedAgentConfigDefault()
-    message.success('已设为默认配置')
-  } catch (error) {
-    console.error('设置默认配置出错:', error)
-    message.error('设置默认配置失败')
-  }
-}
-
-const confirmDeleteConfig = async () => {
-  if (!selectedAgentId.value || !selectedAgentConfigId.value) return
-
-  const currentName = selectedConfigSummary.value?.name || '当前配置'
-  const list = agentConfigs.value[selectedAgentId.value] || []
-  const content =
-    list.length <= 1
-      ? `将删除「${currentName}」。删除后系统会自动创建一个新的默认配置。`
-      : `将删除「${currentName}」。`
-
-  Modal.confirm({
-    title: '确认删除配置？',
-    content,
-    okText: '删除',
-    okType: 'danger',
-    cancelText: '取消',
-    onOk: async () => {
-      isDeletingConfig.value = true
-      try {
-        await agentStore.deleteSelectedAgentConfigProfile()
-        message.success('配置已删除')
-      } catch (error) {
-        console.error('删除配置出错:', error)
-        message.error('删除配置失败')
-      } finally {
-        isDeletingConfig.value = false
-      }
-    }
-  })
-}
 </script>
 
 <style lang="less" scoped>

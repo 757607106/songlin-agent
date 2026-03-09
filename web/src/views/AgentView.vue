@@ -42,25 +42,12 @@
         </div>
       </a-modal>
 
-      <a-modal
-        v-model:open="createConfigModalOpen"
-        title="新建配置"
-        :width="320"
-        :confirmLoading="createConfigLoading"
-        @ok="handleCreateConfig"
-        @cancel="() => (createConfigModalOpen = false)"
-      >
-        <a-input v-model:value="createConfigName" placeholder="请输入配置名称" allow-clear />
-      </a-modal>
-
       <!-- 中间内容区域 -->
       <div class="content">
         <AgentChatComponent
           ref="chatComponentRef"
           :single-mode="false"
-          @open-config="toggleConf"
           @open-agent-modal="openAgentModal"
-          @close-config-sidebar="() => (chatUIStore.isConfigSidebarOpen = false)"
         >
           <template #header-right>
             <a-dropdown v-if="selectedAgentId" :trigger="['click']">
@@ -91,27 +78,6 @@
                       <span>{{ cfg.name }}</span>
                     </div>
                   </a-menu-item>
-                  <a-menu-divider v-if="userStore.isAdmin" />
-                  <a-menu-item
-                    v-if="userStore.isAdmin"
-                    key="create_config"
-                    @click="openCreateConfigModal"
-                  >
-                    <div class="menu-item-layout">
-                      <Plus :size="16" />
-                      <span>新建配置</span>
-                    </div>
-                  </a-menu-item>
-                  <a-menu-item
-                    v-if="userStore.isAdmin"
-                    key="open_config"
-                    @click="openConfigSidebar"
-                  >
-                    <div class="menu-item-layout">
-                      <SquarePen :size="16" />
-                      <span>编辑当前配置</span>
-                    </div>
-                  </a-menu-item>
                 </a-menu>
               </template>
             </a-dropdown>
@@ -127,12 +93,6 @@
           </template>
         </AgentChatComponent>
       </div>
-
-      <!-- 配置侧边栏 -->
-      <AgentConfigSidebar
-        :isOpen="chatUIStore.isConfigSidebarOpen"
-        @close="() => (chatUIStore.isConfigSidebarOpen = false)"
-      />
 
       <!-- 反馈模态框 -->
       <FeedbackModalComponent ref="feedbackModal" :agent-id="selectedAgentId" />
@@ -178,9 +138,8 @@ import {
   EyeOutlined
 } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
-import { Settings2, Ellipsis, ChevronDown, Star, Plus, SquarePen } from 'lucide-vue-next'
+import { Settings2, Ellipsis, ChevronDown, Star } from 'lucide-vue-next'
 import AgentChatComponent from '@/components/AgentChatComponent.vue'
-import AgentConfigSidebar from '@/components/AgentConfigSidebar.vue'
 import FeedbackModalComponent from '@/components/dashboard/FeedbackModalComponent.vue'
 import { useUserStore } from '@/stores/user'
 import { useAgentStore } from '@/stores/agent'
@@ -293,48 +252,6 @@ const selectAgentFromModal = async (agent) => {
     await selectAgent(agent.id)
   }
   chatUIStore.agentModalOpen = false
-}
-
-const toggleConf = () => {
-  chatUIStore.isConfigSidebarOpen = !chatUIStore.isConfigSidebarOpen
-}
-
-const openConfigSidebar = () => {
-  chatUIStore.isConfigSidebarOpen = true
-}
-
-const createConfigModalOpen = ref(false)
-const createConfigLoading = ref(false)
-const createConfigName = ref('')
-
-const openCreateConfigModal = () => {
-  createConfigName.value = ''
-  createConfigModalOpen.value = true
-}
-
-const handleCreateConfig = async () => {
-  if (!selectedAgentId.value) return
-  if (!createConfigName.value) {
-    message.error('请输入配置名称')
-    return
-  }
-
-  createConfigLoading.value = true
-  try {
-    await agentStore.createAgentConfigProfile({
-      name: createConfigName.value,
-      setDefault: false,
-      fromCurrent: false
-    })
-    createConfigModalOpen.value = false
-    chatUIStore.isConfigSidebarOpen = true
-    message.success('配置已创建')
-  } catch (error) {
-    console.error('创建配置出错:', error)
-    message.error(error.message || '创建配置失败')
-  } finally {
-    createConfigLoading.value = false
-  }
 }
 
 const selectAgentConfig = async (configId) => {

@@ -66,3 +66,5 @@ docs/vibe
 .cursorrules
 
 /models
+
+.tmp_rag_anything/
