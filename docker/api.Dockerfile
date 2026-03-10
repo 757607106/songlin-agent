@@ -53,3 +53,4 @@ ENV PATH="/app/.venv/bin:$PATH"
 # 复制代码到容器中
 COPY ../src /app/src
 COPY ../server /app/server
+COPY ../raganything /app/raganything

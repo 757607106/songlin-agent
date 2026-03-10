@@ -411,7 +411,8 @@ class TeamOrchestrationService:
                 matrix[name] = sorted(set(explicit))
                 continue
 
-            inferred = set(member.get("depends_on") or []) | set(reverse_deps.get(name, []))
+            # 默认只保留前向通信（当前节点 -> 依赖它的下游节点），避免无必要回跳导致循环路由
+            inferred = set(reverse_deps.get(name, []))
             matrix[name] = sorted(n for n in inferred if n in names and n != name)
 
         return matrix
@@ -557,7 +558,8 @@ class TeamOrchestrationService:
             "1. 任何 Agent 的 depends_on 未满足时，不得调度该 Agent。\n"
             "2. 不得连续路由同一 Agent 超过其 max_retries 上限。\n"
             "3. 发现循环调用风险时，立即 FINISH 并输出阻塞原因。\n"
-            "4. 每次只能返回一个 next（某个 Agent 名称或 FINISH）。"
+            "4. 每次只能返回一个 next（某个 Agent 名称或 FINISH）。\n"
+            "5. 若用户仅寒暄、未提出明确任务，直接 FINISH，并给出简短回复。"
         )
 
     # ── Utilities ──────────────────────────────────────────────

@@ -543,6 +543,7 @@ const getThreadState = (threadId) => {
     chatState.threadStates[threadId] = {
       isStreaming: false,
       streamAbortController: null,
+      activeStreamSessionId: null,
       onGoingConv: createOnGoingConvState(),
       agentState: null, // 添加 agentState 字段
       activeSubagent: null, // 当前活动的子 Agent
@@ -580,7 +581,8 @@ const cleanupThreadState = (threadId) => {
 }
 
 // ==================== STREAM HANDLING LOGIC ====================
-const resetOnGoingConv = (threadId = null) => {
+const resetOnGoingConv = (threadId = null, options = {}) => {
+  const { abortStream = true } = options
   console.log(
     `🔄 [RESET] Resetting on going conversation: ${new Date().toLocaleTimeString()}.${new Date().getMilliseconds()}`,
     threadId
@@ -592,7 +594,7 @@ const resetOnGoingConv = (threadId = null) => {
     // 清理指定线程的状态
     const threadState = getThreadState(targetThreadId)
     if (threadState) {
-      if (threadState.streamAbortController) {
+      if (abortStream && threadState.streamAbortController) {
         threadState.streamAbortController.abort()
         threadState.streamAbortController = null
       }
@@ -1025,8 +1027,10 @@ const handleSendMessage = async ({ image } = {}) => {
 
   const threadState = getThreadState(threadId)
   if (!threadState) return
+  const streamSessionId = createClientUuid()
 
   threadState.isStreaming = true
+  threadState.activeStreamSessionId = streamSessionId
   resetOnGoingConv(threadId)
   threadState.streamAbortController = new AbortController()
 
@@ -1047,13 +1051,23 @@ const handleSendMessage = async ({ image } = {}) => {
     } else {
       console.warn('[Interrupted] Catch')
     }
-    threadState.isStreaming = false
+    if (threadState.activeStreamSessionId === streamSessionId) {
+      threadState.isStreaming = false
+    }
   } finally {
-    threadState.streamAbortController = null
+    const isCurrentSession = threadState.activeStreamSessionId === streamSessionId
+    if (isCurrentSession) {
+      threadState.streamAbortController = null
+    }
     // 异步加载历史记录，保持当前消息显示直到历史记录加载完成
     fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId }).finally(() => {
+      const latestThreadState = getThreadState(threadId)
+      if (!latestThreadState || latestThreadState.activeStreamSessionId !== streamSessionId) {
+        return
+      }
+      latestThreadState.activeStreamSessionId = null
       // 历史记录加载完成后，安全地清空当前进行中的对话
-      resetOnGoingConv(threadId)
+      resetOnGoingConv(threadId, { abortStream: false })
       scrollController.scrollToBottom()
       void fetchThreads(currentAgentId.value).catch(() => {})
     })
@@ -1065,6 +1079,20 @@ const handleSendOrStop = async (payload) => {
   const threadId = currentChatId.value
   const threadState = getThreadState(threadId)
   if (isProcessing.value && threadState && threadState.streamAbortController) {
+    const runId = normalizeRunId(threadState.currentRunId || currentRunId.value)
+    let cancelRequested = false
+    if (runId) {
+      try {
+        await runtimeApi.cancelRun(runId)
+        cancelRequested = true
+        message.info('已请求停止，等待当前步骤结束')
+      } catch (error) {
+        console.warn('Cancel run failed, fallback to local abort only:', error)
+      }
+    }
+    if (cancelRequested) {
+      return
+    }
     // 中断生成
     threadState.streamAbortController.abort()
 

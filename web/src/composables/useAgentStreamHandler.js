@@ -119,7 +119,7 @@ export function useAgentStreamHandler({
       }
 
       case 'error':
-        handleChatError({ message: chunkMessage }, 'stream')
+        handleChatError({ message: chunk.error_message || chunkMessage }, 'stream')
         // Stop the loading indicator
         if (threadState) {
           threadState.isStreaming = false

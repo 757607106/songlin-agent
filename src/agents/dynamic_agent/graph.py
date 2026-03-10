@@ -111,6 +111,9 @@ class DynamicAgent(BaseAgent):
                     enriched_metadata["is_subagent"] = is_subagent
                     enriched_metadata["subagent_name"] = subagent_name
                     enriched_metadata["namespace"] = list(namespace) if namespace else []
+                    # Supervisor 内部路由 token（如 {"next": "...", "reason": "..."}）不应直接透传给用户
+                    if enriched_metadata.get("langgraph_node") == "supervisor":
+                        continue
                     yield msg, enriched_metadata
                 elif mode == "updates":
                     update_event = {

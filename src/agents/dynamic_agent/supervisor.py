@@ -23,6 +23,7 @@ from typing import Annotated, Any, TypedDict
 from deepagents import create_deep_agent
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, SystemMessage
+from langgraph.errors import GraphBubbleUp
 from langgraph.graph import END, START, StateGraph, add_messages
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
@@ -110,6 +111,8 @@ def _compute_eligible_targets(
     eligible: list[str] = []
     completed_set = set(completed_agents)
     for target in agent_names:
+        if target in completed_set:
+            continue
         if target not in allowed_targets:
             continue
         unmet = dependency_map.get(target, set()) - completed_set
@@ -500,6 +503,9 @@ async def build_supervisor_graph(
                 # Run subagent with timeout
                 result = await asyncio.wait_for(sa_graph.ainvoke(state), timeout=per_agent_timeout)
                 return result
+            except GraphBubbleUp:
+                # interrupt/pause 等 LangGraph 控制流必须向上冒泡，不能吞掉
+                raise
             except TimeoutError:
                 error_msg = f"Agent `{agent_name}` 执行超时（>{per_agent_timeout}s）"
                 logger.warning(error_msg)

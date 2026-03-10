@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime
 
 from langchain.messages import AIMessage, AIMessageChunk, HumanMessage
+from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -476,11 +477,39 @@ async def save_partial_message(
         return None
 
 
+async def save_partial_assistant_message(
+    conv_repo: ConversationRepository,
+    thread_id: str,
+    content: str,
+    *,
+    stop_reason: str,
+):
+    text = str(content or "")
+    if not text.strip():
+        return None
+    try:
+        return await conv_repo.add_message_by_thread_id(
+            thread_id=thread_id,
+            role="assistant",
+            content=text,
+            message_type="text",
+            extra_metadata={
+                "is_partial": True,
+                "stop_reason": stop_reason,
+            },
+        )
+    except Exception as e:
+        logger.error(f"Error saving partial assistant message: {e}")
+        logger.error(traceback.format_exc())
+        return None
+
+
 async def save_messages_from_langgraph_state(
     graph,
     thread_id: str,
     conv_repo: ConversationRepository,
     config_dict: dict,
+    excluded_ai_names: set[str] | None = None,
 ) -> None:
     try:
         messages = await _get_langgraph_messages(config_dict, graph)
@@ -497,6 +526,9 @@ async def save_messages_from_langgraph_state(
                 continue
 
             if msg_type == "ai":
+                msg_name = str(msg_dict.get("name") or "").strip()
+                if excluded_ai_names and msg_name and msg_name in excluded_ai_names:
+                    continue
                 await _save_ai_message(conv_repo, thread_id, msg_dict)
             elif msg_type == "tool":
                 await _save_tool_message(conv_repo, msg_dict)
@@ -751,6 +783,8 @@ async def stream_agent_chat(
         return
     await thread_lock.acquire()
     distributed_lock_session = None
+    full_msg = None
+    accumulated_content: list[str] = []
 
     try:
         distributed_lock_session, distributed_lock_acquired = await _try_acquire_distributed_thread_lock(thread_id)
@@ -770,6 +804,26 @@ async def stream_agent_chat(
             )
             return
         conv_repo = ConversationRepository(db)
+        partial_saved_on_cancel = False
+        excluded_ai_names: set[str] = set()
+
+        async def _save_cancel_partial(conv_repo_target: ConversationRepository):
+            nonlocal full_msg, partial_saved_on_cancel
+            if partial_saved_on_cancel:
+                return
+            if not full_msg and accumulated_content:
+                full_msg = AIMessage(content="".join(accumulated_content))
+            content = full_msg.content if hasattr(full_msg, "content") and full_msg else ""
+            if not str(content or "").strip():
+                return
+            await save_partial_assistant_message(
+                conv_repo_target,
+                thread_id,
+                str(content),
+                stop_reason="cancel_requested",
+            )
+            partial_saved_on_cancel = True
+
         run_id = _extract_run_id(meta)
         runtime_metadata = {"current_run_id": run_id} if run_id else {}
         if agent_config_id is not None:
@@ -800,6 +854,7 @@ async def stream_agent_chat(
             },
         )
         if await _runtime_is_cancel_requested(meta=meta):
+            await _save_cancel_partial(conv_repo)
             await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_IDLE, has_interrupt=False)
             yield make_chunk(status="interrupted", message="运行已取消", meta=meta)
             return
@@ -826,6 +881,11 @@ async def stream_agent_chat(
         # 根据用户权限过滤知识库
         requested_knowledge_names = input_context["agent_config"].get("knowledges")
         requested_subagents = input_context["agent_config"].get("subagents") or []
+        excluded_ai_names = {
+            str(sa.get("name")).strip()
+            for sa in requested_subagents
+            if isinstance(sa, dict) and str(sa.get("name") or "").strip()
+        }
         need_kb_filter = bool(requested_knowledge_names) or any(
             isinstance(sa, dict) and sa.get("knowledges") for sa in requested_subagents
         )
@@ -863,8 +923,6 @@ async def stream_agent_chat(
                         )
                     sa["knowledges"] = filtered_sa_knowledges
 
-        full_msg = None
-        accumulated_content = []
         tool_state_event_count = 0
         last_tool_state_emit_at = 0.0
         pending_agent_state_task: asyncio.Task | None = None
@@ -904,6 +962,7 @@ async def stream_agent_chat(
             if now_ts - last_cancel_check_ts >= 1.0:
                 last_cancel_check_ts = now_ts
                 if await _runtime_is_cancel_requested(meta=meta):
+                    await _save_cancel_partial(conv_repo)
                     await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_IDLE, has_interrupt=False)
                     yield make_chunk(status="interrupted", message="运行已取消", meta=meta)
                     return
@@ -975,6 +1034,8 @@ async def stream_agent_chat(
             subagent_name = metadata.get("subagent_name") if isinstance(metadata, dict) else None
 
             if isinstance(msg, AIMessageChunk):
+                if is_subagent:
+                    continue
                 accumulated_content.append(msg.content)
 
                 content_for_check = "".join(accumulated_content[-10:])
@@ -1044,6 +1105,7 @@ async def stream_agent_chat(
             with contextlib.suppress(asyncio.CancelledError):
                 await pending_agent_state_task
         if await _runtime_is_cancel_requested(meta=meta):
+            await _save_cancel_partial(conv_repo)
             await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_IDLE, has_interrupt=False)
             yield make_chunk(status="interrupted", message="运行已取消", meta=meta)
             return
@@ -1108,6 +1170,7 @@ async def stream_agent_chat(
             thread_id=thread_id,
             conv_repo=conv_repo,
             config_dict=langgraph_config,
+            excluded_ai_names=excluded_ai_names,
         )
         await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_COMPLETED, has_interrupt=False)
         await _runtime_transition(
@@ -1120,8 +1183,45 @@ async def stream_agent_chat(
 
         yield make_chunk(status="finished", meta=meta)
 
+    except GraphBubbleUp:
+        logger.info("LangGraph interrupt bubbled up during stream; falling back to interrupt handler.")
+        conv_repo_local = locals().get("conv_repo")
+        if conv_repo_local is None:
+            raise
+
+        state_graph_local = locals().get("state_graph")
+        langgraph_config_local = locals().get("langgraph_config")
+        if langgraph_config_local is None:
+            raise
+        if state_graph_local is None:
+            state_graph_local = await agent.get_graph(**graph_kwargs)
+
+        async def _mark_interrupt(_question, _operation):
+            await update_thread_runtime_status(
+                conv_repo_local,
+                thread_id,
+                RUNTIME_STATUS_WAITING_FOR_HUMAN,
+                has_interrupt=True,
+            )
+
+        has_interrupt_chunk = False
+        async for chunk in check_and_handle_interrupts(
+            state_graph_local,
+            langgraph_config_local,
+            make_chunk,
+            meta,
+            thread_id,
+            on_interrupt=_mark_interrupt,
+        ):
+            has_interrupt_chunk = True
+            yield chunk
+        if has_interrupt_chunk:
+            return
+        raise
+
     except (asyncio.CancelledError, ConnectionError) as e:
         logger.warning(f"Client disconnected, cancelling stream: {e}")
+        cancel_requested = await _runtime_is_cancel_requested(meta=meta)
 
         async def save_cleanup():
             nonlocal full_msg
@@ -1130,13 +1230,16 @@ async def stream_agent_chat(
 
             async with pg_manager.get_async_session_context() as new_db:
                 new_conv_repo = ConversationRepository(new_db)
-                await save_partial_message(
-                    new_conv_repo,
-                    thread_id,
-                    full_msg=full_msg,
-                    error_message="对话已中断" if not full_msg else None,
-                    error_type="interrupted",
-                )
+                if not cancel_requested:
+                    await save_partial_message(
+                        new_conv_repo,
+                        thread_id,
+                        full_msg=full_msg,
+                        error_message="对话已中断" if not full_msg else None,
+                        error_type="interrupted",
+                    )
+                else:
+                    await _save_cancel_partial(new_conv_repo)
                 await update_thread_runtime_status(new_conv_repo, thread_id, RUNTIME_STATUS_IDLE, has_interrupt=False)
 
         cleanup_task = asyncio.create_task(save_cleanup())
@@ -1152,9 +1255,9 @@ async def stream_agent_chat(
             next_status="cancelled",
             actor_type="system",
             actor_name="chat_stream_service",
-            reason="client_disconnected",
+            reason="cancel_requested" if cancel_requested else "client_disconnected",
         )
-        yield make_chunk(status="interrupted", message="对话已中断", meta=meta)
+        yield make_chunk(status="interrupted", message="运行已取消" if cancel_requested else "对话已中断", meta=meta)
 
     except Exception as e:
         logger.error(f"Error streaming messages: {e}, {traceback.format_exc()}")
@@ -1317,12 +1420,19 @@ async def stream_agent_resume(
         )
         agent_config_id = config_item.id
 
+    agent_config_context = _resolve_agent_config_context(config_item)
+    team_execution_mode = str(agent_config_context.get("multi_agent_mode") or "disabled")
+    excluded_ai_names = {
+        str(sa.get("name")).strip()
+        for sa in (agent_config_context.get("subagents") or [])
+        if isinstance(sa, dict) and str(sa.get("name") or "").strip()
+    }
     input_context = {
         "user_id": user_id,
         "thread_id": thread_id,
         "department_id": department_id,
         "agent_config_id": agent_config_id,
-        "agent_config": _resolve_agent_config_context(config_item),
+        "agent_config": agent_config_context,
     }
     context = agent._build_runtime_context(input_context)
     dynamic_graph_kwargs = _build_dynamic_graph_kwargs(agent, input_context) if agent_id == "DynamicAgent" else None
@@ -1333,13 +1443,41 @@ async def stream_agent_resume(
     )
     graph = await agent.get_graph(**graph_kwargs)
 
-    stream_source = graph.astream(
-        resume_command,
-        context=context,
-        config={"configurable": {"thread_id": thread_id, "user_id": user_id}},
-        stream_mode="messages",
+    langgraph_config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
+    is_dynamic_supervisor_mode = (
+        agent_id == "DynamicAgent"
+        and team_execution_mode == "supervisor"
+        and bool(agent_config_context.get("subagents"))
     )
+    stream_kwargs = {
+        "config": langgraph_config,
+        "stream_mode": "messages",
+    }
+    if not is_dynamic_supervisor_mode:
+        stream_kwargs["context"] = context
+    stream_source = graph.astream(resume_command, **stream_kwargs)
     conv_repo = ConversationRepository(db)
+    full_msg = None
+    accumulated_content: list[str] = []
+    partial_saved_on_cancel = False
+
+    async def _save_resume_cancel_partial(conv_repo_target: ConversationRepository):
+        nonlocal full_msg, partial_saved_on_cancel
+        if partial_saved_on_cancel:
+            return
+        if not full_msg and accumulated_content:
+            full_msg = AIMessage(content="".join(accumulated_content))
+        content = full_msg.content if hasattr(full_msg, "content") and full_msg else ""
+        if not str(content or "").strip():
+            return
+        await save_partial_assistant_message(
+            conv_repo_target,
+            thread_id,
+            str(content),
+            stop_reason="cancel_requested",
+        )
+        partial_saved_on_cancel = True
+
     run_id = _extract_run_id(meta)
     runtime_metadata = {"current_run_id": run_id} if run_id else {}
     if agent_config_id is not None:
@@ -1364,6 +1502,10 @@ async def stream_agent_resume(
             msg_dict = msg.model_dump()
             if "id" not in msg_dict:
                 msg_dict["id"] = str(uuid.uuid4())
+            msg_name = str(msg_dict.get("name") or "").strip() if isinstance(msg_dict, dict) else ""
+            msg_content = msg_dict.get("content") if isinstance(msg_dict, dict) else ""
+            if isinstance(msg_content, str) and msg_content and msg_name not in excluded_ai_names:
+                accumulated_content.append(msg_content)
             if isinstance(msg_dict, dict) and msg_dict.get("type") == "tool":
                 await _runtime_append_event(
                     meta=meta,
@@ -1380,8 +1522,6 @@ async def stream_agent_resume(
             yield make_resume_chunk(
                 content=getattr(msg, "content", ""), msg=msg_dict, metadata=metadata, status="loading"
             )
-
-        langgraph_config = {"configurable": {"thread_id": thread_id, "user_id": str(current_user.id)}}
 
         async def _mark_interrupt(_question, _operation):
             await update_thread_runtime_status(
@@ -1404,6 +1544,7 @@ async def stream_agent_resume(
             thread_id=thread_id,
             conv_repo=conv_repo,
             config_dict=langgraph_config,
+            excluded_ai_names=excluded_ai_names,
         )
         await update_thread_runtime_status(conv_repo, thread_id, RUNTIME_STATUS_COMPLETED, has_interrupt=False)
         await _runtime_transition(
@@ -1416,14 +1557,44 @@ async def stream_agent_resume(
 
         yield make_resume_chunk(status="finished", meta=meta)
 
+    except GraphBubbleUp:
+        logger.info("LangGraph interrupt bubbled up during resume; falling back to interrupt handler.")
+
+        async def _mark_interrupt(_question, _operation):
+            await update_thread_runtime_status(
+                conv_repo,
+                thread_id,
+                RUNTIME_STATUS_WAITING_FOR_HUMAN,
+                has_interrupt=True,
+            )
+
+        has_interrupt_chunk = False
+        async for chunk in check_and_handle_interrupts(
+            graph,
+            langgraph_config,
+            make_resume_chunk,
+            meta,
+            thread_id,
+            on_interrupt=_mark_interrupt,
+        ):
+            has_interrupt_chunk = True
+            yield chunk
+        if has_interrupt_chunk:
+            return
+        raise
+
     except (asyncio.CancelledError, ConnectionError) as e:
         logger.warning(f"Client disconnected during resume: {e}")
+        cancel_requested = await _runtime_is_cancel_requested(meta=meta)
 
         async with pg_manager.get_async_session_context() as new_db:
             new_conv_repo = ConversationRepository(new_db)
-            await save_partial_message(
-                new_conv_repo, thread_id, error_message="对话恢复已中断", error_type="resume_interrupted"
-            )
+            if not cancel_requested:
+                await save_partial_message(
+                    new_conv_repo, thread_id, error_message="对话恢复已中断", error_type="resume_interrupted"
+                )
+            else:
+                await _save_resume_cancel_partial(new_conv_repo)
             await update_thread_runtime_status(new_conv_repo, thread_id, RUNTIME_STATUS_IDLE, has_interrupt=False)
 
         await _runtime_transition(
@@ -1431,9 +1602,13 @@ async def stream_agent_resume(
             next_status="cancelled",
             actor_type="system",
             actor_name="chat_stream_service.resume",
-            reason="resume_interrupted",
+            reason="cancel_requested" if cancel_requested else "resume_interrupted",
         )
-        yield make_resume_chunk(status="interrupted", message="对话恢复已中断", meta=meta)
+        yield make_resume_chunk(
+            status="interrupted",
+            message="运行已取消" if cancel_requested else "对话恢复已中断",
+            meta=meta,
+        )
 
     except Exception as e:
         logger.error(f"Error during resume: {e}, {traceback.format_exc()}")

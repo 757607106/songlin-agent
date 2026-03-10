@@ -1,7 +1,11 @@
 import asyncio
+import hashlib
+import json
 import os
+import shutil
 import traceback
 from functools import partial
+from typing import Any
 
 from lightrag import LightRAG, QueryParam
 from lightrag.kg.shared_storage import initialize_pipeline_status
@@ -13,9 +17,16 @@ from pymilvus import connections, utility
 from src import config
 from src.knowledge.base import FileStatus, KnowledgeBase
 from src.knowledge.indexing import process_file_to_markdown
-from src.knowledge.utils.kb_utils import get_embedding_config
+from src.knowledge.utils.kb_utils import get_embedding_config, is_minio_url, parse_minio_url
 from src.utils import hashstr, logger
 from src.utils.datetime_utils import utc_isoformat
+
+try:
+    from raganything import RAGAnything, RAGAnythingConfig
+except Exception as import_error:  # noqa: BLE001
+    RAGAnything = None
+    RAGAnythingConfig = None
+    logger.warning(f"RAG-Anything import failed, fallback to LightRAG only: {import_error}")
 
 
 class LightRagKB(KnowledgeBase):
@@ -33,8 +44,17 @@ class LightRagKB(KnowledgeBase):
 
         # 存储 LightRAG 实例映射 {db_id: LightRAG}
         self.instances: dict[str, LightRAG] = {}
+        # 存储 RAG-Anything 实例映射 {db_id: RAGAnything}
+        self.raganything_instances: dict[str, Any] = {}
         self._lightrag_llm_max_concurrency = max(1, int(os.getenv("LIGHTRAG_LLM_MAX_CONCURRENCY", "1")))
         self._lightrag_llm_semaphore = asyncio.Semaphore(self._lightrag_llm_max_concurrency)
+        self._raganything_enabled = self._parse_env_bool("RAG_ANYTHING_ENABLED", True)
+        self._raganything_query_enabled = self._parse_env_bool("RAG_ANYTHING_QUERY_ENABLED", True)
+        self._raganything_vlm_enabled = self._parse_env_bool("RAG_ANYTHING_VLM_ENABLED", False)
+        self._raganything_timeout_seconds = max(30, int(os.getenv("RAG_ANYTHING_TIMEOUT_SECONDS", "120")))
+        self._raganything_requested_parser = os.getenv("RAG_ANYTHING_PARSER", "mineru").strip().lower()
+        self._mineru_cli_available = shutil.which("mineru") is not None
+        self._mineru_api_available_cache: bool | None = None
 
         logger.info("LightRagKB initialized")
 
@@ -42,6 +62,168 @@ class LightRagKB(KnowledgeBase):
     def kb_type(self) -> str:
         """知识库类型标识"""
         return "lightrag"
+
+    @staticmethod
+    def _parse_env_bool(name: str, default: bool = False) -> bool:
+        """解析环境变量中的布尔值。"""
+        value = os.getenv(name)
+        if value is None:
+            return default
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _get_file_extension(file_path: str) -> str:
+        """提取文件扩展名（支持 URL 路径）。"""
+        path_without_query = file_path.split("?", 1)[0]
+        return os.path.splitext(path_without_query)[1].lower()
+
+    @classmethod
+    def _raganything_parser_supports_file(cls, parser: str, file_path: str) -> bool:
+        """
+        判断当前 parser 是否支持该文件类型，避免不必要的 RAG-Anything 调用失败。
+        """
+        ext = cls._get_file_extension(file_path)
+        if not ext:
+            return False
+
+        parser_name = (parser or "").strip().lower()
+        if parser_name == "docling":
+            return ext in {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".html", ".htm", ".xhtml"}
+        if parser_name == "mineru":
+            return ext in {
+                ".pdf",
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".bmp",
+                ".tiff",
+                ".tif",
+                ".doc",
+                ".docx",
+                ".ppt",
+                ".pptx",
+                ".xls",
+                ".xlsx",
+                ".txt",
+                ".md",
+                ".html",
+                ".htm",
+                ".xhtml",
+            }
+        if parser_name == "mineru_api":
+            return ext in {
+                ".pdf",
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".bmp",
+                ".tiff",
+                ".tif",
+                ".doc",
+                ".docx",
+                ".ppt",
+                ".pptx",
+                ".xls",
+                ".xlsx",
+                ".txt",
+                ".md",
+                ".html",
+                ".htm",
+                ".xhtml",
+            }
+        if parser_name == "paddleocr":
+            return ext in {
+                ".pdf",
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".bmp",
+                ".tiff",
+                ".tif",
+                ".doc",
+                ".docx",
+                ".ppt",
+                ".pptx",
+                ".xls",
+                ".xlsx",
+                ".txt",
+                ".md",
+            }
+        return True
+
+    def _should_force_mineru_service_fallback(self, file_path: str) -> bool:
+        """
+        当用户期望 mineru 解析但本地 mineru CLI 不可用时，
+        PDF/图片文件强制走现有 mineru_ocr 服务以贴近既有部署方式。
+        """
+        if self._raganything_requested_parser != "mineru" or self._mineru_cli_available:
+            return False
+        if not os.getenv("MINERU_API_URI"):
+            return False
+        if not self._is_mineru_api_available():
+            return False
+        ext = self._get_file_extension(file_path)
+        return ext in {".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
+
+    def _is_mineru_api_available(self) -> bool:
+        """
+        检测 MinerU API 服务可用性，并在实例生命周期内缓存结果。
+        """
+        if self._mineru_api_available_cache is not None:
+            return self._mineru_api_available_cache
+
+        if not os.getenv("MINERU_API_URI"):
+            self._mineru_api_available_cache = False
+            return False
+
+        try:
+            from src.plugins.document_processor_factory import DocumentProcessorFactory
+
+            health = DocumentProcessorFactory.check_health("mineru_ocr")
+            self._mineru_api_available_cache = health.get("status") == "healthy"
+            if not self._mineru_api_available_cache:
+                logger.warning(
+                    f"MinerU API unavailable for RAG-Anything fallback: {health.get('message', 'unknown')}"
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Failed to check MinerU API health: {e}")
+            self._mineru_api_available_cache = False
+
+        return self._mineru_api_available_cache
+
+    def _build_processing_params(self, base_params: dict | None, db_id: str, file_path: str) -> dict:
+        """构建解析参数，并在必要时自动注入 mineru_ocr。"""
+        params = (base_params or {}).copy()
+        params["db_id"] = db_id
+        if self._should_force_mineru_service_fallback(file_path):
+            params.setdefault("enable_ocr", "mineru_ocr")
+        return params
+
+    async def _insert_markdown_via_raganything(
+        self,
+        rag_anything: Any,
+        markdown_content: str,
+        file_id: str,
+        file_path: str | None,
+    ) -> bool:
+        """使用 RAG-Anything 的 insert_content_list 进行文本兜底插入。"""
+        try:
+            await asyncio.wait_for(
+                rag_anything.insert_content_list(
+                    content_list=[{"type": "text", "text": markdown_content, "page_idx": 0}],
+                    file_path=file_path or file_id,
+                    doc_id=file_id,
+                    display_stats=False,
+                ),
+                timeout=self._raganything_timeout_seconds,
+            )
+            logger.info(f"Indexed file {file_id} via RAG-Anything text fallback")
+            return True
+        except Exception as rag_anything_error:  # noqa: BLE001
+            logger.warning(
+                f"RAG-Anything text fallback failed for {file_id}, fallback to LightRAG: {rag_anything_error}"
+            )
+            return False
 
     def delete_database(self, db_id: str) -> dict:
         """删除数据库，同时清除Milvus和Neo4j中的数据"""
@@ -90,6 +272,9 @@ class LightRagKB(KnowledgeBase):
         finally:
             if "driver" in locals():
                 driver.close()
+
+        self.instances.pop(db_id, None)
+        self.raganything_instances.pop(db_id, None)
 
         # Delete local files and metadata
         return super().delete_database(db_id)
@@ -163,6 +348,151 @@ class LightRagKB(KnowledgeBase):
             logger.error(f"Traceback: {traceback.format_exc()}")
             return None
 
+    async def _create_raganything_instance(self, db_id: str, rag: LightRAG) -> Any | None:
+        """创建 RAG-Anything 实例。"""
+        if not self._raganything_enabled:
+            return None
+        if RAGAnything is None or RAGAnythingConfig is None:
+            return None
+
+        llm_info = self.databases_meta[db_id].get("llm_info", {})
+        working_dir = os.path.join(self.work_dir, db_id, "raganything")
+        os.makedirs(working_dir, exist_ok=True)
+
+        parser = self._raganything_requested_parser
+        if parser == "mineru" and not self._mineru_cli_available:
+            if self._is_mineru_api_available():
+                fallback_parser = "mineru_api"
+            else:
+                fallback_parser = "docling" if shutil.which("docling") else "paddleocr"
+            logger.warning(
+                "RAG_ANYTHING_PARSER=mineru but mineru command is unavailable, "
+                f"fallback to parser={fallback_parser}"
+            )
+            parser = fallback_parser
+        elif parser == "mineru_api" and not self._is_mineru_api_available():
+            fallback_parser = "docling" if shutil.which("docling") else "paddleocr"
+            logger.warning(
+                "RAG_ANYTHING_PARSER=mineru_api but MinerU API is unavailable, "
+                f"fallback to parser={fallback_parser}"
+            )
+            parser = fallback_parser
+
+        rag_config = RAGAnythingConfig(
+            working_dir=working_dir,
+            parser=parser,
+            parse_method=os.getenv("RAG_ANYTHING_PARSE_METHOD", "auto"),
+            enable_image_processing=self._parse_env_bool("RAG_ANYTHING_ENABLE_IMAGE_PROCESSING", True),
+            enable_table_processing=self._parse_env_bool("RAG_ANYTHING_ENABLE_TABLE_PROCESSING", True),
+            enable_equation_processing=self._parse_env_bool("RAG_ANYTHING_ENABLE_EQUATION_PROCESSING", True),
+            context_window=int(os.getenv("RAG_ANYTHING_CONTEXT_WINDOW", "1")),
+            context_mode=os.getenv("RAG_ANYTHING_CONTEXT_MODE", "page"),
+            max_context_tokens=int(os.getenv("RAG_ANYTHING_MAX_CONTEXT_TOKENS", "2000")),
+        )
+
+        return RAGAnything(
+            lightrag=rag,
+            llm_model_func=self._get_llm_func(llm_info),
+            config=rag_config,
+        )
+
+    async def _get_raganything_instance(self, db_id: str) -> Any | None:
+        """获取或创建 RAG-Anything 实例。"""
+        if db_id in self.raganything_instances:
+            return self.raganything_instances[db_id]
+
+        rag = await self._get_lightrag_instance(db_id)
+        if not rag:
+            return None
+
+        try:
+            rag_anything = await self._create_raganything_instance(db_id, rag)
+            if rag_anything is not None:
+                self.raganything_instances[db_id] = rag_anything
+                logger.info(f"RAG-Anything instance ready for {db_id}")
+            return rag_anything
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Failed to create RAG-Anything instance for {db_id}: {e}")
+            logger.debug(traceback.format_exc())
+            return None
+
+    async def _prepare_local_file_for_raganything(
+        self, file_path: str, db_id: str, content_hash: str | None = None
+    ) -> tuple[str, str | None]:
+        """
+        为 RAG-Anything 解析准备本地文件路径。
+
+        返回值:
+            (local_path, temp_path_to_cleanup)
+        """
+        if not is_minio_url(file_path):
+            return file_path, None
+
+        from src.storage.minio import get_minio_client
+
+        bucket_name, object_name = parse_minio_url(file_path)
+        minio_client = get_minio_client()
+        suffix = os.path.splitext(object_name)[1] or ".bin"
+
+        cache_dir = os.path.join(self.work_dir, db_id, "raganything_input_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_key_src = f"{file_path}|{content_hash or ''}"
+        cache_key = hashlib.sha256(cache_key_src.encode("utf-8")).hexdigest()[:24]
+        cached_path = os.path.join(cache_dir, f"{cache_key}{suffix}")
+
+        if not os.path.exists(cached_path):
+            file_bytes = await minio_client.adownload_file(bucket_name, object_name)
+            with open(cached_path, "wb") as cache_file:
+                cache_file.write(file_bytes)
+
+        return cached_path, None
+
+    @staticmethod
+    def _content_list_to_markdown(content_list: list[dict[str, Any]]) -> str:
+        """将 RAG-Anything 的 content_list 转为可展示 markdown。"""
+        markdown_parts: list[str] = []
+        for item in content_list:
+            content_type = item.get("type", "text")
+            if content_type == "text":
+                text = str(item.get("text", "")).strip()
+                if text:
+                    markdown_parts.append(text)
+                continue
+
+            if content_type == "image":
+                captions = item.get("image_caption") or item.get("img_caption") or []
+                caption_text = " ".join(captions) if isinstance(captions, list) else str(captions)
+                image_path = item.get("img_path") or ""
+                alt = caption_text or "image"
+                if image_path:
+                    markdown_parts.append(f"![{alt}]({image_path})")
+                elif caption_text:
+                    markdown_parts.append(f"[Image] {caption_text}")
+                continue
+
+            if content_type == "table":
+                captions = item.get("table_caption") or []
+                caption_text = " ".join(captions) if isinstance(captions, list) else str(captions)
+                table_body = str(item.get("table_body", "")).strip()
+                if caption_text:
+                    markdown_parts.append(f"### {caption_text}")
+                if table_body:
+                    markdown_parts.append(table_body)
+                continue
+
+            if content_type == "equation":
+                latex = str(item.get("latex", "")).strip()
+                text = str(item.get("text", "")).strip()
+                if latex:
+                    markdown_parts.append(f"$$\n{latex}\n$$")
+                if text:
+                    markdown_parts.append(text)
+                continue
+
+            markdown_parts.append(f"```json\n{json.dumps(item, ensure_ascii=False, indent=2)}\n```")
+
+        return "\n\n".join(part for part in markdown_parts if part)
+
     def _get_llm_func(self, llm_info: dict):
         """获取 LLM 函数"""
         from src.models import select_model
@@ -197,6 +527,102 @@ class LightRagKB(KnowledgeBase):
                 )
 
         return llm_model_func
+
+    async def parse_file(self, db_id: str, file_id: str, operator_id: str | None = None) -> dict:
+        """
+        Parse file to Markdown and save to MinIO (Status: PARSING -> PARSED/ERROR_PARSING)
+        """
+        if file_id not in self.files_meta:
+            raise ValueError(f"File {file_id} not found")
+
+        file_meta = self.files_meta[file_id]
+        current_status = file_meta.get("status")
+        allowed_statuses = {
+            FileStatus.UPLOADED,
+            FileStatus.ERROR_PARSING,
+            "failed",
+        }
+        if current_status not in allowed_statuses:
+            raise ValueError(
+                f"Cannot parse file with status '{current_status}'. "
+                f"File must be in one of these states: {', '.join(allowed_statuses)}"
+            )
+
+        file_path = file_meta.get("path")
+        if not file_path:
+            raise ValueError(f"File {file_id} has no valid path in metadata")
+
+        if "error" in file_meta:
+            self.files_meta[file_id].pop("error", None)
+
+        self.files_meta[file_id]["status"] = FileStatus.PARSING
+        self.files_meta[file_id]["updated_at"] = utc_isoformat()
+        if operator_id:
+            self.files_meta[file_id]["updated_by"] = operator_id
+        await self._persist_file(file_id)
+        self._add_to_processing_queue(file_id)
+
+        try:
+            markdown_content = None
+            rag_anything = await self._get_raganything_instance(db_id)
+            if rag_anything is not None:
+                try:
+                    local_file_path, _ = await self._prepare_local_file_for_raganything(
+                        file_path,
+                        db_id=db_id,
+                        content_hash=file_meta.get("content_hash"),
+                    )
+                    parser_name = getattr(getattr(rag_anything, "config", None), "parser", "")
+                    if self._raganything_parser_supports_file(parser_name, local_file_path):
+                        content_list, _ = await asyncio.wait_for(
+                            rag_anything.parse_document(
+                                file_path=local_file_path,
+                                parse_method=os.getenv("RAG_ANYTHING_PARSE_METHOD", "auto"),
+                                display_stats=False,
+                            ),
+                            timeout=self._raganything_timeout_seconds,
+                        )
+                        markdown_content = self._content_list_to_markdown(content_list)
+                        logger.info(f"Parsed file {file_id} via RAG-Anything")
+                    else:
+                        logger.info(
+                            f"Skip RAG-Anything parse for {file_id}: parser={parser_name}, "
+                            f"file_type={self._get_file_extension(local_file_path)}"
+                        )
+                except Exception as rag_anything_error:  # noqa: BLE001
+                    logger.warning(
+                        f"RAG-Anything parse failed for {file_id}, fallback to current parser: {rag_anything_error}"
+                    )
+
+            if markdown_content is None:
+                params = self._build_processing_params(
+                    file_meta.get("processing_params", {}),
+                    db_id=db_id,
+                    file_path=file_path,
+                )
+                markdown_content = await process_file_to_markdown(file_path, params=params)
+
+            markdown_file_path = await self._save_markdown_to_minio(db_id, file_id, markdown_content)
+            self.files_meta[file_id]["status"] = FileStatus.PARSED
+            self.files_meta[file_id]["markdown_file"] = markdown_file_path
+            self.files_meta[file_id]["updated_at"] = utc_isoformat()
+            if operator_id:
+                self.files_meta[file_id]["updated_by"] = operator_id
+            await self._persist_file(file_id)
+            return self.files_meta[file_id]
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Failed to parse file {file_id}: {error_msg}")
+            self.files_meta[file_id]["status"] = FileStatus.ERROR_PARSING
+            self.files_meta[file_id]["error"] = error_msg
+            self.files_meta[file_id]["updated_at"] = utc_isoformat()
+            if operator_id:
+                self.files_meta[file_id]["updated_by"] = operator_id
+            await self._persist_file(file_id)
+            raise
+        finally:
+            self._remove_from_processing_queue(file_id)
 
     def _get_embedding_func(self, embed_info: dict):
         """获取 embedding 函数"""
@@ -298,17 +724,60 @@ class LightRagKB(KnowledgeBase):
         self._add_to_processing_queue(file_id)
 
         try:
-            # Read markdown
-            markdown_content = await self._read_markdown_from_minio(file_meta["markdown_file"])
             file_path = file_meta.get("path")
 
             # Clean up existing chunks if any (for re-indexing)
             await self.delete_file_chunks_only(db_id, file_id)
 
-            # Insert
-            await rag.ainsert(input=markdown_content, ids=file_id, file_paths=file_path)
+            rag_anything = await self._get_raganything_instance(db_id)
+            used_raganything = False
 
-            logger.info(f"Indexed file {file_id} into LightRAG")
+            if rag_anything and file_path:
+                local_file_path, cleanup_temp_path = await self._prepare_local_file_for_raganything(
+                    file_path,
+                    db_id=db_id,
+                    content_hash=file_meta.get("content_hash"),
+                )
+                try:
+                    try:
+                        parser_name = getattr(getattr(rag_anything, "config", None), "parser", "")
+                        if self._raganything_parser_supports_file(parser_name, local_file_path):
+                            await asyncio.wait_for(
+                                rag_anything.process_document_complete(
+                                    file_path=local_file_path,
+                                    doc_id=file_id,
+                                    file_name=file_path,
+                                ),
+                                timeout=self._raganything_timeout_seconds,
+                            )
+                            used_raganything = True
+                            logger.info(f"Indexed file {file_id} via RAG-Anything")
+                        else:
+                            logger.info(
+                                f"Skip RAG-Anything indexing for {file_id}: parser={parser_name}, "
+                                f"file_type={self._get_file_extension(local_file_path)}"
+                            )
+                    except Exception as rag_anything_error:  # noqa: BLE001
+                        logger.warning(
+                            f"RAG-Anything indexing failed for {file_id}, fallback to LightRAG: {rag_anything_error}"
+                        )
+                finally:
+                    if cleanup_temp_path and os.path.exists(cleanup_temp_path):
+                        os.unlink(cleanup_temp_path)
+
+            if not used_raganything:
+                markdown_content = await self._read_markdown_from_minio(file_meta["markdown_file"])
+                if rag_anything is not None:
+                    used_raganything = await self._insert_markdown_via_raganything(
+                        rag_anything=rag_anything,
+                        markdown_content=markdown_content,
+                        file_id=file_id,
+                        file_path=file_path,
+                    )
+
+                if not used_raganything:
+                    await rag.ainsert(input=markdown_content, ids=file_id, file_paths=file_path)
+                    logger.info(f"Indexed file {file_id} into LightRAG (fallback)")
 
             # Update status
             self.files_meta[file_id]["status"] = FileStatus.INDEXED
@@ -373,17 +842,63 @@ class LightRagKB(KnowledgeBase):
                 # 重新解析文件为 markdown
                 if content_type != "file":
                     raise ValueError("URL 内容解析已禁用")
-                markdown_content = await process_file_to_markdown(file_path, params=params)
-                markdown_content_lines = markdown_content[:100].replace("\n", " ")
-                logger.info(f"Markdown content: {markdown_content_lines}...")
 
                 # 先删除现有的 LightRAG 数据（仅删除chunks，保留元数据）
                 await self.delete_file_chunks_only(db_id, file_id)
 
-                # 使用 LightRAG 重新插入内容
-                await rag.ainsert(input=markdown_content, ids=file_id, file_paths=file_path)
+                rag_anything = await self._get_raganything_instance(db_id)
+                used_raganything = False
+                if rag_anything and file_path:
+                    local_file_path, cleanup_temp_path = await self._prepare_local_file_for_raganything(
+                        file_path,
+                        db_id=db_id,
+                        content_hash=file_meta.get("content_hash"),
+                    )
+                    try:
+                        try:
+                            parser_name = getattr(getattr(rag_anything, "config", None), "parser", "")
+                            if self._raganything_parser_supports_file(parser_name, local_file_path):
+                                await asyncio.wait_for(
+                                    rag_anything.process_document_complete(
+                                        file_path=local_file_path,
+                                        doc_id=file_id,
+                                        file_name=file_path,
+                                    ),
+                                    timeout=self._raganything_timeout_seconds,
+                                )
+                                used_raganything = True
+                            else:
+                                logger.info(
+                                    f"Skip RAG-Anything update_content for {file_id}: parser={parser_name}, "
+                                    f"file_type={self._get_file_extension(local_file_path)}"
+                                )
+                        except Exception as rag_anything_error:  # noqa: BLE001
+                            logger.warning(
+                                f"RAG-Anything update_content failed for {file_id}, fallback to LightRAG: "
+                                f"{rag_anything_error}"
+                            )
+                    finally:
+                        if cleanup_temp_path and os.path.exists(cleanup_temp_path):
+                            os.unlink(cleanup_temp_path)
 
-                logger.info(f"Updated {content_type} {file_path} in LightRAG. Done.")
+                if not used_raganything:
+                    parse_params = self._build_processing_params(params, db_id=db_id, file_path=file_path)
+                    markdown_content = await process_file_to_markdown(file_path, params=parse_params)
+                    markdown_content_lines = markdown_content[:100].replace("\n", " ")
+                    logger.info(f"Markdown content: {markdown_content_lines}...")
+                    if rag_anything is not None:
+                        used_raganything = await self._insert_markdown_via_raganything(
+                            rag_anything=rag_anything,
+                            markdown_content=markdown_content,
+                            file_id=file_id,
+                            file_path=file_path,
+                        )
+                    if not used_raganything:
+                        await rag.ainsert(input=markdown_content, ids=file_id, file_paths=file_path)
+
+                logger.info(
+                    f"Updated {content_type} {file_path} in {'RAG-Anything' if used_raganything else 'LightRAG'}. Done."
+                )
 
                 # 更新元数据状态
                 self.files_meta[file_id]["status"] = "done"
@@ -457,13 +972,13 @@ class LightRagKB(KnowledgeBase):
                 "only_need_context": True,
                 "top_k": 10,
             } | filtered_kwargs
-            param = QueryParam(**params_dict)
-
-            # 执行查询
-            response = await rag.aquery_data(query_text, param)
-            logger.debug(f"Query response: {str(response)[:1000]}...")
+            mode = params_dict.get("mode", "mix")
+            query_param = QueryParam(**params_dict)
 
             if agent_call:
+                # Agent 调用需要结构化返回，保持现有返回格式不变
+                response = await rag.aquery_data(query_text, query_param)
+                logger.debug(f"Agent query response: {str(response)[:1000]}...")
                 scope = query_params.get("retrieval_content_scope", "chunks")
                 data = response.get("data", {}) or {}
 
@@ -487,6 +1002,21 @@ class LightRagKB(KnowledgeBase):
 
                 return result
 
+            rag_anything = await self._get_raganything_instance(db_id)
+            if self._raganything_query_enabled and rag_anything is not None:
+                raganything_kwargs = dict(params_dict)
+                raganything_kwargs.pop("mode", None)
+                raganything_kwargs["vlm_enhanced"] = bool(
+                    query_params.get("vlm_enhanced", self._raganything_vlm_enabled)
+                )
+                try:
+                    return await rag_anything.aquery(query_text, mode=mode, **raganything_kwargs)
+                except Exception as rag_anything_error:  # noqa: BLE001
+                    logger.warning(f"RAG-Anything query failed, fallback to LightRAG: {rag_anything_error}")
+
+            # fallback: 保持原 LightRAG 查询逻辑
+            response = await rag.aquery_data(query_text, query_param)
+            logger.debug(f"LightRAG query response: {str(response)[:1000]}...")
             return response
 
         except Exception as e:
@@ -618,6 +1148,13 @@ class LightRagKB(KnowledgeBase):
                 "min": 1,
                 "max": 100,
                 "description": "返回的最大结果数量",
+            },
+            {
+                "key": "vlm_enhanced",
+                "label": "启用 VLM 增强",
+                "type": "boolean",
+                "default": self._raganything_vlm_enabled,
+                "description": "启用后将由 RAG-Anything 执行视觉增强查询（需要视觉模型能力）",
             },
             {
                 "key": "retrieval_content_scope",
