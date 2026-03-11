@@ -11,6 +11,10 @@ from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
 from src import config, graph_base, knowledge_base
+from src.services.interrupt_protocol import (
+    ApprovalInterruptInfo,
+    approval_resume_is_approved,
+)
 from src.services.mcp_service import get_enabled_mcp_tools
 from src.storage.minio import aupload_file_to_minio
 from src.utils import logger
@@ -100,13 +104,14 @@ def get_approved_user_goal(
         dict: 包含审批结果的字典，格式为 {"approved": bool, "message": str}
     """
     # 构建详细的中断信息
-    interrupt_info = {
-        "question": "是否批准以下操作？",
-        "operation": operation_description,
-    }
+    interrupt_info = ApprovalInterruptInfo(
+        question="是否批准以下操作？",
+        operation=operation_description,
+        allowed_decisions=["approve", "reject"],
+    )
 
     # 触发人工审批
-    is_approved = interrupt(interrupt_info)
+    is_approved = approval_resume_is_approved(interrupt(interrupt_info.to_payload()))
 
     # 返回审批结果
     if is_approved:

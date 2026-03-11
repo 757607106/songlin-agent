@@ -20,6 +20,9 @@ async def test_admin_can_list_agents(test_client, admin_headers):
     payload = response.json()
     assert isinstance(payload["agents"], list)
     assert "metadata" in payload
+    agent_ids = {agent["id"] for agent in payload["agents"]}
+    assert {"SqlReporterAgent", "AgentPlatformAgent"}.issubset(agent_ids)
+    assert {"DynamicAgent", "ArchitectAgent", "ChatbotAgent", "DeepAgent", "DocOrganizerAgent"}.isdisjoint(agent_ids)
 
 
 async def test_admin_can_read_default_agent(test_client, admin_headers):

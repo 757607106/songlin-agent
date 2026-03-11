@@ -52,9 +52,11 @@ export function useApproval({ getThreadState, resetOnGoingConv, fetchThreadMessa
         {
           thread_id: threadId,
           run_id: runId || undefined,
-          decision,
-          approved: decision === 'approve',
-          edited_text: decision === 'edit' ? editedText : undefined,
+          interrupt: {
+            kind: approvalState.interruptInfo?.kind || 'approval',
+            decision,
+            edited_text: decision === 'edit' ? editedText : undefined
+          },
           config: agentConfigId ? { agent_config_id: agentConfigId } : {}
         },
         {
@@ -85,7 +87,9 @@ export function useApproval({ getThreadState, resetOnGoingConv, fetchThreadMessa
   }
 
   const processApprovalInStream = (chunk, threadId, currentAgentId) => {
-    if (chunk.status !== 'human_approval_required') {
+    const chunkStatus =
+      chunk.status || (chunk.event === 'interrupt.requested' ? 'human_approval_required' : undefined)
+    if (chunkStatus !== 'human_approval_required') {
       return false
     }
 

@@ -1,5 +1,7 @@
 # 多 Agent 运行时重构蓝图（可执行版）
 
+> 注：这是一份重构蓝图存档文档。当前实现已经落地到 `AgentPlatformAgent + agent-design` 方案；文中出现的旧 `DynamicAgent`、旧运行时字段和迁移步骤，主要用于说明历史设计与迁移背景。最新使用方式请以 [智能体配置](/latest/advanced/agents-config) 和 [多 Agent 编排](/latest/advanced/team-orchestration) 为准。
+
 ## 1. 文档目标
 
 本蓝图用于将当前平台升级为面向生产的「Supervisor 治理 + Deep Agents 执行」架构，覆盖以下交付物：
@@ -411,8 +413,8 @@ create index if not exists idx_run_approvals_run on run_approvals(run_id);
 - `src/services/task_service.py`
   - 引入 lease、心跳、重试退避、幂等检查
   - 补齐 coroutine registry 与恢复路径
-- `src/services/team_orchestration_service.py`
-  - 输出 hybrid 推荐分值与治理策略草案
+- `src/agent_platform/runtime/runtime_context_service.py`
+  - 输出 runtime context、通信矩阵与治理策略草案
 - 新增 `src/services/runtime_service.py`
   - run 创建、状态迁移、事件写入、控制命令
 - 新增 `src/services/policy_service.py`
@@ -474,7 +476,7 @@ create index if not exists idx_run_approvals_run on run_approvals(run_id);
 - 新增 `test/test_run_event_schema.py`
 - 新增 `test/test_runtime_router.py`
 - 新增 `test/test_idempotency.py`
-- 扩展 `test/test_team_orchestration_service.py`
+- 扩展 `test/test_agent_manager_discovery.py` 与 runtime context 相关测试
 - 扩展 `test/test_tool_resolver_mcp_scope.py`
 
 ## 9. 验收指标（上线门槛）

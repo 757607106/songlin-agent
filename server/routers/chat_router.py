@@ -4,13 +4,14 @@ import uuid
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.storage.postgres.models_business import User
 from server.routers.auth_router import get_admin_user
 from server.utils.auth_middleware import get_db, get_required_user
 from src import config as conf
+from src.agent_platform.constants import AGENT_PLATFORM_AGENT_ID, AGENT_PLATFORM_CONFIG_VERSION
 from src.agents import agent_manager
 from src.models import select_model
 from src.services.chat_stream_service import get_agent_state_view, stream_agent_chat, stream_agent_resume
@@ -25,10 +26,13 @@ from src.services.conversation_service import (
 )
 from src.services.feedback_service import get_message_feedback_view, submit_message_feedback_view
 from src.services.history_query_service import get_agent_history_view
-from src.services.team_orchestration_service import team_orchestration_service
+from src.services.interrupt_protocol import ApprovalResumePayload
 from src.repositories.agent_config_repository import AgentConfigRepository
 from src.utils.logging_config import logger
 from src.utils.image_processor import process_uploaded_image
+
+PRODUCT_VISIBLE_AGENT_IDS = {"SqlReporterAgent"}
+INTERNAL_AGENT_IDS = {AGENT_PLATFORM_AGENT_ID}
 
 
 # 图片上传响应模型
@@ -63,14 +67,44 @@ class AgentConfigUpdate(BaseModel):
     config_json: dict | None = None
 
 
+class ResumeAgentChatRequest(BaseModel):
+    thread_id: str
+    run_id: str | None = None
+    interrupt: ApprovalResumePayload
+    config: dict = Field(default_factory=dict)
+
+
 chat = APIRouter(prefix="/chat", tags=["chat"])
 
 
 def _ensure_dynamic_or_admin(agent_id: str, current_user: User) -> None:
-    if agent_id == "DynamicAgent":
+    if agent_id == AGENT_PLATFORM_AGENT_ID:
         return
     if current_user.role not in {"admin", "superadmin"}:
         raise HTTPException(status_code=403, detail="需要管理员权限")
+
+
+def _is_product_visible_agent(agent_id: str) -> bool:
+    return agent_id in PRODUCT_VISIBLE_AGENT_IDS
+
+
+def _is_agent_platform_config_json(config_json: dict | None) -> bool:
+    return isinstance(config_json, dict) and config_json.get("version") == AGENT_PLATFORM_CONFIG_VERSION
+
+
+def _supports_agent_config_record(agent_id: str, config_json: dict | None) -> bool:
+    if agent_id != AGENT_PLATFORM_AGENT_ID:
+        return True
+    return _is_agent_platform_config_json(config_json)
+
+
+def _ensure_supported_agent_config(agent_id: str, config_json: dict | None) -> None:
+    if _supports_agent_config_record(agent_id, config_json):
+        return
+    raise HTTPException(
+        status_code=422,
+        detail="AgentPlatformAgent 仅支持 agent_platform_v2 配置，请使用 blueprint/spec 设计链路。",
+    )
 
 
 # =============================================================================
@@ -83,10 +117,14 @@ async def get_default_agent(current_user: User = Depends(get_required_user)):
     """获取默认智能体ID（需要登录）"""
     try:
         default_agent_id = conf.default_agent_id
-        # 如果没有设置默认智能体，尝试获取第一个可用的智能体
-        if not default_agent_id:
-            agents = await agent_manager.get_agents_info()
-            if agents:
+        agents = await agent_manager.get_agents_info()
+        visible_agents = [agent for agent in agents if _is_product_visible_agent(agent.get("id", ""))]
+
+        # 如果默认智能体为空或属于内部运行时入口，则回退到可见产品 agent
+        if not default_agent_id or not _is_product_visible_agent(default_agent_id):
+            if visible_agents:
+                default_agent_id = visible_agents[0].get("id", "")
+            elif agents:
                 default_agent_id = agents[0].get("id", "")
 
         return {"default_agent_id": default_agent_id}
@@ -102,6 +140,8 @@ async def set_default_agent(request_data: dict = Body(...), current_user=Depends
         agent_id = request_data.get("agent_id")
         if not agent_id:
             raise HTTPException(status_code=422, detail="缺少必需的 agent_id 字段")
+        if not _is_product_visible_agent(agent_id):
+            raise HTTPException(status_code=422, detail="仅允许将产品内置 Agent 设为默认")
 
         # 验证智能体是否存在
         agents = await agent_manager.get_agents_info()
@@ -192,6 +232,13 @@ async def optimize_prompt(
 async def get_agent(current_user: User = Depends(get_required_user)):
     """获取所有可用智能体的基本信息（需要登录）"""
     agents_info = await agent_manager.get_agents_info()
+    ordered_agents = sorted(
+        agents_info,
+        key=lambda item: (
+            0 if _is_product_visible_agent(item.get("id", "")) else 1,
+            str(item.get("name") or item.get("id") or ""),
+        ),
+    )
 
     # Return agents with basic information (without configurable_items for performance)
     agents = [
@@ -202,11 +249,18 @@ async def get_agent(current_user: User = Depends(get_required_user)):
             "examples": agent_info.get("examples", []),
             "has_checkpointer": agent_info.get("has_checkpointer", False),
             "capabilities": agent_info.get("capabilities", []),  # 智能体能力列表
+            "product_visible": _is_product_visible_agent(agent_info.get("id", "")),
         }
-        for agent_info in agents_info
+        for agent_info in ordered_agents
     ]
 
-    return {"agents": agents}
+    return {
+        "agents": agents,
+        "metadata": {
+            "product_visible_agent_ids": sorted(PRODUCT_VISIBLE_AGENT_IDS),
+            "internal_agent_ids": sorted(INTERNAL_AGENT_IDS),
+        },
+    }
 
 
 @chat.get("/agent/{agent_id}")
@@ -259,7 +313,8 @@ async def list_agent_configs(
 
     repo = AgentConfigRepository(db)
     items = await repo.list_by_department_agent(department_id=current_user.department_id, agent_id=agent_id)
-    if not items:
+    items = [item for item in items if _supports_agent_config_record(agent_id, item.config_json)]
+    if not items and agent_id != AGENT_PLATFORM_AGENT_ID:
         await repo.get_or_create_default(
             department_id=current_user.department_id,
             agent_id=agent_id,
@@ -299,6 +354,8 @@ async def get_agent_config_profile(
     item = await repo.get_by_id(config_id)
     if not item or item.agent_id != agent_id or item.department_id != current_user.department_id:
         raise HTTPException(status_code=404, detail="配置不存在")
+    if not _supports_agent_config_record(agent_id, item.config_json):
+        raise HTTPException(status_code=404, detail="配置不存在")
 
     return {"config": item.to_dict()}
 
@@ -316,6 +373,7 @@ async def create_agent_config_profile(
     if not agent_manager.get_agent(agent_id):
         raise HTTPException(status_code=404, detail=f"智能体 {agent_id} 不存在")
     _ensure_dynamic_or_admin(agent_id, current_user)
+    _ensure_supported_agent_config(agent_id, payload.config_json)
 
     repo = AgentConfigRepository(db)
     item = await repo.create(
@@ -355,6 +413,8 @@ async def update_agent_config_profile(
     item = await repo.get_by_id(config_id)
     if not item or item.agent_id != agent_id or item.department_id != current_user.department_id:
         raise HTTPException(status_code=404, detail="配置不存在")
+    effective_config_json = payload.config_json if payload.config_json is not None else item.config_json
+    _ensure_supported_agent_config(agent_id, effective_config_json)
 
     updated = await repo.update(
         item,
@@ -486,34 +546,23 @@ async def update_chat_models(model_provider: str, model_names: list[str], curren
 @chat.post("/agent/{agent_id}/resume")
 async def resume_agent_chat(
     agent_id: str,
-    thread_id: str = Body(...),
-    run_id: str | None = Body(None),
-    approved: bool | None = Body(default=None),
-    decision: str | None = Body(default=None),
-    edited_text: str | None = Body(default=None),
-    config: dict = Body({}),
+    body: ResumeAgentChatRequest,
     current_user: User = Depends(get_required_user),
     db: AsyncSession = Depends(get_db),
 ):
     """恢复被人工审批中断的对话（需要登录）"""
-    if decision:
-        normalized_decision = decision.strip().lower()
-        if normalized_decision not in {"approve", "reject", "edit"}:
-            raise HTTPException(status_code=422, detail="decision 仅支持 approve/reject/edit")
-        if normalized_decision == "approve":
-            resume_payload: bool | dict = True
-        elif normalized_decision == "reject":
-            resume_payload = False
-        else:
-            resume_payload = {"decision": "edit", "content": edited_text or ""}
-    else:
-        if approved is None:
-            raise HTTPException(status_code=422, detail="approved 或 decision 至少提供一个")
-        normalized_decision = "approve" if approved else "reject"
-        resume_payload = approved
+    thread_id = body.thread_id
+    run_id = body.run_id
+    config = body.config
+    resume_payload = body.interrupt.to_payload()
+    normalized_decision = body.interrupt.decision
 
     logger.info(
-        f"Resuming agent_id: {agent_id}, thread_id: {thread_id}, decision: {normalized_decision}, approved: {approved}"
+        "Resuming agent_id: %s, thread_id: %s, decision: %s, interrupt: %s",
+        agent_id,
+        thread_id,
+        normalized_decision,
+        body.interrupt.kind,
     )
 
     meta = {
@@ -521,7 +570,7 @@ async def resume_agent_chat(
         "thread_id": thread_id,
         "run_id": run_id or config.get("run_id"),
         "user_id": current_user.id,
-        "approved": approved,
+        "interrupt_kind": body.interrupt.kind,
         "decision": normalized_decision,
     }
     if "request_id" not in meta or not meta.get("request_id"):
@@ -555,11 +604,6 @@ async def save_agent_config(
 
         # === 校验知识库权限 ===
         from src import knowledge_base
-
-        if agent_id == "DynamicAgent":
-            validation = team_orchestration_service.validate_team(config, strict=False)
-            if validation["errors"]:
-                raise HTTPException(status_code=422, detail=f"团队配置校验失败: {'; '.join(validation['errors'])}")
 
         requested_kbs = set(config.get("knowledges") or [])
         for sa in config.get("subagents") or []:

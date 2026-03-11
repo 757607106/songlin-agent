@@ -69,6 +69,47 @@ export function useAgentStreamHandler({
   supportsTodo,
   supportsFiles
 }) {
+  const appendExecutionAuditEvent = (threadState, event, payload = null) => {
+    if (!threadState || !event) return
+    if (!threadState.executionAuditEvents) {
+      threadState.executionAuditEvents = []
+    }
+    threadState.executionAuditEvents.push({
+      event,
+      auditEventType: event,
+      payload,
+      timestamp: Date.now()
+    })
+    if (threadState.executionAuditEvents.length > 100) {
+      threadState.executionAuditEvents = threadState.executionAuditEvents.slice(-100)
+    }
+  }
+
+  const resolveChunkStatus = (chunk) => {
+    if (chunk?.status) return chunk.status
+    switch (chunk?.event) {
+      case 'run.started':
+        return 'init'
+      case 'message.chunk':
+      case 'tool.completed':
+        return 'loading'
+      case 'state.snapshot':
+        return 'agent_state'
+      case 'worker.progress':
+        return 'subagent_step'
+      case 'interrupt.requested':
+        return 'human_approval_required'
+      case 'run.completed':
+        return 'finished'
+      case 'run.interrupted':
+        return 'interrupted'
+      case 'run.failed':
+        return 'error'
+      default:
+        return chunk?.status
+    }
+  }
+
   /**
    * Process a single stream chunk based on its status
    * @param {Object} chunk - The parsed JSON chunk
@@ -76,7 +117,8 @@ export function useAgentStreamHandler({
    * @returns {Boolean} - Returns true if processing should stop (e.g. error, finished, interrupted)
    */
   const handleStreamChunk = (chunk, threadId) => {
-    const { status, msg, request_id, message: chunkMessage } = chunk
+    const status = resolveChunkStatus(chunk)
+    const { msg, request_id, message: chunkMessage } = chunk
     const threadState = getThreadState(threadId)
 
     if (!threadState) return false
@@ -115,6 +157,12 @@ export function useAgentStreamHandler({
           }
           threadState.onGoingConv.msgChunks[messageKey].push(msg)
         }
+        if (chunk.event === 'tool.completed' && msg?.type === 'tool') {
+          appendExecutionAuditEvent(threadState, 'tool.completed', {
+            name: msg?.name || msg?.tool_name || 'tool',
+            tool_call_id: msg?.tool_call_id || msg?.langgraph_tool_call_id || null
+          })
+        }
         return false
       }
 
@@ -123,6 +171,8 @@ export function useAgentStreamHandler({
         // Stop the loading indicator
         if (threadState) {
           threadState.isStreaming = false
+          threadState.activeSubagent = null
+          threadState.activeWorker = null
 
           // Abort the stream controller to stop processing further events
           if (threadState.streamAbortController) {
@@ -133,6 +183,7 @@ export function useAgentStreamHandler({
         return true
 
       case 'human_approval_required':
+        appendExecutionAuditEvent(threadState, chunk.event || 'interrupt.requested', chunk.interrupt_info || null)
         // 使用审批 composable 处理审批请求
         return processApprovalInStream(chunk, threadId, unref(currentAgentId))
 
@@ -144,6 +195,18 @@ export function useAgentStreamHandler({
             files: chunk.agent_state?.files || []
           })
           threadState.agentState = chunk.agent_state
+          threadState.activeWorker = chunk.agent_state?.active_worker || null
+        }
+        return false
+
+      case 'execution_audit':
+        appendExecutionAuditEvent(
+          threadState,
+          chunk.event || chunk.audit_event_type || 'execution.audit',
+          chunk.audit_event || null
+        )
+        if (chunk.event === 'worker.route' && chunk.audit_event?.worker) {
+          threadState.activeWorker = chunk.audit_event.worker
         }
         return false
 
@@ -176,6 +239,7 @@ export function useAgentStreamHandler({
           threadState.isStreaming = false
           // 清除子 Agent 执行状态
           threadState.activeSubagent = null
+          threadState.activeWorker = null
           if ((unref(supportsTodo) || unref(supportsFiles)) && threadState.agentState) {
             console.log(
               `[AgentState|Final] ${new Date().toLocaleTimeString()}.${new Date().getMilliseconds()}`,
@@ -194,6 +258,8 @@ export function useAgentStreamHandler({
         console.warn('[Interrupted] case')
         if (threadState) {
           threadState.isStreaming = false
+          threadState.activeSubagent = null
+          threadState.activeWorker = null
         }
         // 如果有 message 字段，显示提示（例如：敏感内容检测）
         if (chunkMessage) {

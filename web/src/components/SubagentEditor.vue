@@ -264,6 +264,7 @@ const emit = defineEmits(['update:modelValue'])
 
 const expandedIndex = ref(null)
 const optimizingIndex = ref(null)
+const AGENT_PLATFORM_AGENT_ID = 'AgentPlatformAgent'
 
 // 加载可用的工具/知识库/MCP 选项
 const loadedTools = ref([])
@@ -306,8 +307,7 @@ const skillOptions = computed(() => {
 
 const fetchOptions = async () => {
   try {
-    // 获取 DynamicAgent 的 configurable_items 以获得可用的工具/知识库/MCP
-    const detail = await agentApi.getAgentDetail('DynamicAgent')
+    const detail = await agentApi.getAgentDetail(AGENT_PLATFORM_AGENT_ID)
     const items = detail.configurable_items || {}
 
     // 工具

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.agent_platform.constants import AGENT_PLATFORM_AGENT_ID
 from src.services import conversation_service as svc
 
 
@@ -75,7 +76,7 @@ async def test_sync_thread_attachment_state_updates_graph(monkeypatch: pytest.Mo
     await svc._sync_thread_attachment_state(
         thread_id="thread-1",
         user_id="u1",
-        agent_id="ChatbotAgent",
+        agent_id=AGENT_PLATFORM_AGENT_ID,
         attachments=attachments,
     )
 

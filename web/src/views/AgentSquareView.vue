@@ -12,7 +12,7 @@
       <a-space>
         <a-button size="large" @click="goTeamBuilder" class="action-btn">
           <Users :size="16" />
-          聊天组队
+          AI 创建
         </a-button>
         <a-button type="primary" size="large" @click="showCreator = true" class="action-btn">
           <Plus :size="16" />
@@ -169,10 +169,17 @@ import {
   Eye
 } from 'lucide-vue-next'
 import { agentApi } from '@/apis/agent_api'
+import { agentDesignApi } from '@/apis/agent_design_api'
 import AgentCreatorModal from '@/components/AgentCreatorModal.vue'
+import {
+  AGENT_PLATFORM_AGENT_ID,
+  isAgentPlatformConfig,
+  normalizeAgentPlatformConfig
+} from '@/utils/agentPlatformConfig'
 
 const router = useRouter()
-const DYNAMIC_AGENT_ID = 'DynamicAgent'
+const CUSTOM_AGENT_IDS = [AGENT_PLATFORM_AGENT_ID]
+const BUILTIN_AGENT_IDS = ['SqlReporterAgent']
 
 // 状态
 const loading = ref(false)
@@ -223,24 +230,14 @@ const filteredAgents = computed(() => {
 const fetchAll = async () => {
   loading.value = true
   try {
-    const [agentsRes, configsRes] = await Promise.all([
+    const [agentsRes, customGroups] = await Promise.all([
       agentApi.getAgents(),
-      agentApi.getAgentConfigs(DYNAMIC_AGENT_ID).catch(() => ({ configs: [] }))
+      Promise.all(CUSTOM_AGENT_IDS.map((agentId) => loadCustomAgents(agentId)))
     ])
 
     const allAgentsList = agentsRes.agents || agentsRes || []
-    builtinAgents.value = allAgentsList.filter((a) => a.id !== DYNAMIC_AGENT_ID)
-
-    const configs = configsRes.configs || configsRes || []
-    const detailed = await Promise.all(
-      configs.map((c) =>
-        agentApi
-          .getAgentConfigProfile(DYNAMIC_AGENT_ID, c.id)
-          .then((res) => res.config || res)
-          .catch(() => c)
-      )
-    )
-    customAgents.value = detailed
+    builtinAgents.value = allAgentsList.filter((agent) => BUILTIN_AGENT_IDS.includes(agent.id))
+    customAgents.value = customGroups.flat()
   } catch (e) {
     console.error('加载智能体失败:', e)
     message.error('加载智能体列表失败')
@@ -249,40 +246,80 @@ const fetchAll = async () => {
   }
 }
 
+const loadCustomAgents = async (runtimeAgentId) => {
+  try {
+    const configsRes = await agentApi.getAgentConfigs(runtimeAgentId)
+    const configs = configsRes.configs || configsRes || []
+    const detailed = await Promise.all(
+      configs.map((config) =>
+        agentApi
+          .getAgentConfigProfile(runtimeAgentId, config.id)
+          .then((res) => ({
+            ...(res.config || res),
+            _runtimeAgentId: runtimeAgentId
+          }))
+          .catch(() => ({
+            ...config,
+            _runtimeAgentId: runtimeAgentId
+          }))
+      )
+    )
+    return detailed.filter((item) => isAgentPlatformConfig(item?.config_json))
+  } catch (error) {
+    console.warn(`加载 ${runtimeAgentId} 配置失败:`, error)
+    return []
+  }
+}
+
+const normalizeMode = (agent) => {
+  const config = normalizeAgentPlatformConfig(agent?.config_json || {})
+  return config?.multi_agent_mode || 'disabled'
+}
+
 const getAgentIcon = (agent) => {
   if (agent._isBuiltin) return Bot
-  const mode = agent.config_json?.context?.multi_agent_mode || agent.config_json?.multi_agent_mode
+  const mode = normalizeMode(agent)
   if (mode === 'supervisor') return Users
   if (mode === 'deep_agents') return Zap
+  if (mode === 'swarm') return Users
   return Bot
 }
 
 const getBadgeClass = (agent) => {
   if (agent._isBuiltin) return 'badge-builtin'
-  const mode = agent.config_json?.context?.multi_agent_mode || agent.config_json?.multi_agent_mode
+  const mode = normalizeMode(agent)
   if (mode === 'supervisor') return 'badge-supervisor'
   if (mode === 'deep_agents') return 'badge-deep'
+  if (mode === 'swarm') return 'badge-supervisor'
   return 'badge-single'
 }
 
 const getBadgeText = (agent) => {
   if (agent._isBuiltin) return '内置'
-  const mode = agent.config_json?.context?.multi_agent_mode || agent.config_json?.multi_agent_mode
+  const mode = normalizeMode(agent)
   if (mode === 'supervisor') return 'Supervisor'
   if (mode === 'deep_agents') return 'Deep Agents'
+  if (mode === 'swarm') return 'Swarm'
   return '单智能体'
 }
 
 const getSubagentCount = (agent) => {
   if (agent._isBuiltin) return 0
-  const ctx = agent.config_json?.context || agent.config_json || {}
-  return (ctx.subagents || []).length
+  const config = normalizeAgentPlatformConfig(agent?.config_json || {})
+  return (config?.subagents || []).length
 }
 
 // 导航
 const openDetail = (agent) => {
   const type = agent._isBuiltin ? 'builtin' : 'custom'
-  router.push(`/agent-square/${type}/${agent.id}`)
+  if (agent._isBuiltin) {
+    router.push(`/agent-square/${type}/${agent.id}`)
+    return
+  }
+  router.push({
+    path: `/agent-square/${type}/${agent.id}`,
+    query: { runtime_agent_id: agent._runtimeAgentId || AGENT_PLATFORM_AGENT_ID }
+  })
 }
 
 const goChat = (agent) => {
@@ -290,7 +327,7 @@ const goChat = (agent) => {
     router.push(`/agent/${agent.id}`)
   } else {
     router.push({
-      path: `/agent/${DYNAMIC_AGENT_ID}`,
+      path: `/agent/${agent._runtimeAgentId || AGENT_PLATFORM_AGENT_ID}`,
       query: { config_id: agent.id }
     })
   }
@@ -305,19 +342,26 @@ const closeCreator = () => {
   editingAgent.value = null
 }
 
-const handleSubmit = async ({ payload, configId }) => {
-  if (!payload) {
+const handleSubmit = async ({ blueprint, examples }) => {
+  if (!blueprint) {
     await fetchAll()
     return
   }
   try {
-    if (configId) {
-      await agentApi.updateAgentConfigProfile(DYNAMIC_AGENT_ID, configId, payload)
-      message.success('智能体更新成功')
-    } else {
-      await agentApi.createAgentConfigProfile(DYNAMIC_AGENT_ID, payload)
-      message.success('智能体创建成功')
+    const validation = await agentDesignApi.validate({ blueprint })
+    if (!validation.valid) {
+      message.error(validation.errors?.[0] || 'Blueprint 校验失败')
+      return
     }
+    const compiled = await agentDesignApi.compile({ blueprint })
+    await agentDesignApi.deploy({
+      blueprint,
+      spec: compiled.spec,
+      name: blueprint.name,
+      description: blueprint.description,
+      examples: examples || []
+    })
+    message.success('智能体创建成功')
     closeCreator()
     await fetchAll()
   } catch (e) {
@@ -328,7 +372,7 @@ const handleSubmit = async ({ payload, configId }) => {
 
 const deleteAgent = async (agent) => {
   try {
-    await agentApi.deleteAgentConfigProfile(DYNAMIC_AGENT_ID, agent.id)
+    await agentApi.deleteAgentConfigProfile(agent._runtimeAgentId || AGENT_PLATFORM_AGENT_ID, agent.id)
     message.success('已删除')
     await fetchAll()
   } catch (e) {

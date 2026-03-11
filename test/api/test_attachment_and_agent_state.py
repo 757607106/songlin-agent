@@ -33,8 +33,8 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:5050")
 USERNAME = os.getenv("YUXI_SUPER_ADMIN_NAME", "zwj")
 PASSWORD = os.getenv("YUXI_SUPER_ADMIN_PASSWORD", "zwj12138")
 
-# 默认 Agent ID (需要根据实际情况修改，使用类名)
-DEFAULT_AGENT_ID = "ChatbotAgent"
+# 默认 Agent ID：产品层只保留数据库报表助手为内置 agent
+DEFAULT_AGENT_ID = "SqlReporterAgent"
 
 
 class APITester:

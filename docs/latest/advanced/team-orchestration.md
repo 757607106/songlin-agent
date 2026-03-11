@@ -1,62 +1,112 @@
-# 多 Agent 团队编排
+# 多 Agent 编排
 
-`DynamicAgent` 现支持基于对话的团队创建、职责边界校验和三模式协作执行（`disabled / supervisor / deep_agents`）。
-最新版本支持「一句话自动组队」与「一键落库创建配置」。
-同时新增「聊天式团队组建会话」能力，可在多轮问答中持续完善草稿并恢复历史会话。
+当前版本已经不再暴露 `DynamicAgent` 团队编排接口，而是统一收敛到新的 `AgentPlatformAgent + agent-design` 方案。
 
-## 核心能力
+整体分为两层：
 
-- 对话式团队创建（自然语言增量补全）
-- 一句话自动组队（AI 自动补全团队目标、角色分工、依赖关系）
-- 职责重叠检测与依赖拓扑校验
-- 循环调用检测与重试上限保护
-- 通信矩阵强约束（越界路由自动拦截）
-- 资源权限矩阵（tools/knowledges/mcps/skills）
-- Supervisor 可观测执行日志（route/retry/completed）
+- 设计期：用 `AgentBlueprint -> Validate -> AgentSpec -> Deploy` 创建自定义 Agent
+- 运行期：由 `AgentPlatformAgent` 作为统一运行时入口执行，数据库报表助手仍保留为独立内置 Agent
 
-## 主要 API
+## 当前公开入口
 
-- `POST /api/chat/agent/DynamicAgent/team/wizard`
-- `POST /api/chat/agent/DynamicAgent/team/validate`
-- `POST /api/chat/agent/DynamicAgent/team/create`
-- `POST /api/chat/agent/DynamicAgent/team/auto-create`
-- `POST /api/chat/agent/DynamicAgent/team/langchain-docs`
-- `POST /api/chat/agent/DynamicAgent/team/benchmark`
-- `POST /api/chat/agent/DynamicAgent/team/session`
-- `GET /api/chat/agent/DynamicAgent/team/sessions`
-- `GET /api/chat/agent/DynamicAgent/team/session/{thread_id}`
-- `POST /api/chat/agent/DynamicAgent/team/session/{thread_id}/message`
-- `POST /api/chat/agent/DynamicAgent/team/session/{thread_id}/message/stream`
-- `PUT /api/chat/agent/DynamicAgent/team/session/{thread_id}/draft`
-- `POST /api/chat/agent/DynamicAgent/team/session/{thread_id}/create`
+当前 `src/agents/__init__.py` 只自动注册两个运行时入口：
 
-## 推荐流程
+- `SqlReporterAgent`：产品内置的数据库报表助手
+- `AgentPlatformAgent`：新平台自定义 Agent 的统一运行时入口
 
-1. 直接调用 `team/auto-create`，一句话完成组队并保存
-2. 或先用 `team/wizard` 补全草稿
-3. 用 `team/validate` 修正职责和依赖问题
-4. 用 `team/create` 落库成配置并设为默认
-5. 正式发起对话任务
+其中产品默认可见的内置 Agent 只有 `SqlReporterAgent`。`AgentPlatformAgent` 是内部运行时入口，用于承载用户创建的 blueprint/spec 配置。
 
-## 聊天式组队页面
+## 设计期 API
 
-前端新增独立的「聊天式团队组建」页面（`/team-builder`）：
+一句话创建 Agent、模板起步、开发示例起步，统一走下面这组 API：
 
-- 左侧：会话列表 + 多轮问答
-- 右侧：实时草稿 + 严格校验 + 一键创建配置
-- 支持主智能体与子智能体 tools/knowledges/mcps/skills 的可视化选择与校验
-- 子智能体依赖（depends_on）与允许通信目标（allowed_targets）支持基于当前角色名称的下拉选择
-- 子智能体通信模式（communication_mode）与重试上限（max_retries）支持可视化配置
-- 草稿会话复用 `conversations.extra_metadata` 存储，`session_type=team_builder`
+- `POST /api/agent-design/draft`
+- `GET /api/agent-design/templates`
+- `GET /api/agent-design/examples`
+- `POST /api/agent-design/templates/{template_id}/draft`
+- `POST /api/agent-design/validate`
+- `POST /api/agent-design/compile`
+- `POST /api/agent-design/deploy`
 
-## 模式选择
+对应能力：
 
-- `disabled`: 简单任务，单智能体即可
-- `supervisor`: 需要强治理与可观测过程
-- `deep_agents`: 任务可并行，关注吞吐效率（默认强调 `write_todos + task + filesystem`）
+- 一句话草拟 `AgentBlueprint`
+- 从 legacy template 直接起步
+- 从 development example 直接起步
+- 编译为可执行 `AgentSpec`
+- 部署到部门配置表，交由 `AgentPlatformAgent` 运行
 
-## 参考文档
+## 运行期能力
 
-- 架构说明：`docs/vibe/multi-agent-team-system/architecture.md`
-- 用户手册：`docs/vibe/multi-agent-team-system/user-manual.md`
-- 性能报告：`docs/vibe/multi-agent-team-system/performance-benchmark.md`
+当前自定义 Agent 的运行时能力包括：
+
+- `single`
+- `supervisor`
+- `deep_agents`
+- `swarm_handoff`
+
+worker 统一收敛为以下职责类型：
+
+- `reasoning`
+- `tool`
+- `retrieval`
+
+同时支持：
+
+- 工具、MCP、RAG 检索绑定
+- 强类型审批中断与恢复
+- `execution_audit` 执行轨迹
+- `active_worker / route_log / stage_outputs` 状态查看
+- 动态 `spawn_worker / send_to_worker`
+
+## 推荐使用流程
+
+1. 在 `/team-builder` 或创建弹窗里输入一句话需求，或者直接选择 template / example
+2. 调用 `draft -> validate -> compile -> deploy`
+3. 部署后通过 `AgentPlatformAgent` 配置运行自定义 Agent
+4. 运行中通过流式事件和 `agent_state` 查看 active worker、执行轨迹和恢复点
+5. 如遇审批中断，使用 `resume` 接口继续执行
+
+## 常用运行期接口
+
+设计期完成后，运行期仍走统一聊天接口：
+
+- `GET /api/chat/agent`
+- `GET /api/chat/agent/{agent_id}`
+- `GET /api/chat/agent/{agent_id}/configs`
+- `POST /api/chat/agent/{agent_id}`
+- `POST /api/chat/agent/{agent_id}/resume`
+- `GET /api/chat/agent/{agent_id}/state`
+
+对于自定义 Agent：
+
+- `agent_id` 固定为 `AgentPlatformAgent`
+- 具体执行哪个自定义 Agent，由配置记录里的 `blueprint/spec` 决定
+
+## 数据库报表助手
+
+数据库报表助手保留原有业务流程，但底层已经迁移到 `Supervisor + Worker` 的受控架构。当前阶段流包括：
+
+- `schema`
+- `clarification`
+- `sample_retrieval`
+- `sql_generation`
+- `sql_validation`
+- `sql_execution`
+- `analysis`
+- `chart`
+- `error_recovery`
+
+同时已经支持：
+
+- SQL 审批中断与恢复
+- worker 超时回退
+- `CHART_SKIPPED`
+- skills 直达路径
+- 错误恢复重试
+
+## 相关文档
+
+- [智能体配置](/latest/advanced/agents-config)
+- [多 Agent 运行时重构蓝图](/latest/advanced/runtime-refactor-blueprint)
+- [重构任务清单（开发文档）](../../vibe/agent-refactor-v2/architecture.md)

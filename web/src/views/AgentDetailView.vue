@@ -18,7 +18,7 @@
           对话
         </a-button>
         <a-button
-          v-if="!isEditing"
+          v-if="!isEditing && canEdit"
           type="primary"
           size="large"
           @click="enterEditMode"
@@ -74,6 +74,24 @@
                 {{ agentData.description || '暂无描述' }}
               </span>
             </div>
+            <div class="info-item" v-if="isPlatformCustom">
+              <label>目标</label>
+              <template v-if="isEditing">
+                <a-textarea v-model:value="editForm.goal" placeholder="智能体目标" :rows="2" />
+              </template>
+              <span v-else class="info-value desc">
+                {{ configData.goal || '暂无目标' }}
+              </span>
+            </div>
+            <div class="info-item" v-if="isPlatformCustom">
+              <label>任务范围</label>
+              <template v-if="isEditing">
+                <a-textarea v-model:value="editForm.task_scope" placeholder="任务范围" :rows="2" />
+              </template>
+              <span v-else class="info-value desc">
+                {{ configData.task_scope || '未设置' }}
+              </span>
+            </div>
             <div class="info-item" v-if="!isBuiltin">
               <label>模式</label>
               <template v-if="isEditing">
@@ -81,6 +99,7 @@
                   <a-select-option value="disabled">单智能体</a-select-option>
                   <a-select-option value="supervisor">Supervisor</a-select-option>
                   <a-select-option value="deep_agents">Deep Agents</a-select-option>
+                  <a-select-option value="swarm">Swarm</a-select-option>
                 </a-select>
               </template>
               <span v-else class="info-value">
@@ -109,6 +128,20 @@
             </template>
             <div v-else class="prompt-preview">
               {{ configData.system_prompt || '未设置' }}
+            </div>
+          </div>
+
+          <div v-if="isPlatformCustom" class="config-section">
+            <label>Supervisor 提示词</label>
+            <template v-if="isEditing">
+              <a-textarea
+                v-model:value="editForm.supervisor_prompt"
+                placeholder="可选：定义多 Worker 的路由与协作策略"
+                :rows="3"
+              />
+            </template>
+            <div v-else class="prompt-preview">
+              {{ configData.supervisor_prompt || '未设置' }}
             </div>
           </div>
 
@@ -306,20 +339,25 @@ import {
   Users,
   Bot,
   Zap,
+  Shuffle,
   Plus,
   Trash2,
   HelpCircle,
   AlertTriangle
 } from 'lucide-vue-next'
 import { agentApi } from '@/apis/agent_api'
+import { agentDesignApi } from '@/apis/agent_design_api'
 import { useDatabaseStore } from '@/stores/database'
 import SubagentEditor from '@/components/SubagentEditor.vue'
+import {
+  AGENT_PLATFORM_AGENT_ID,
+  isAgentPlatformConfig,
+  normalizeAgentPlatformConfig
+} from '@/utils/agentPlatformConfig'
 
 const route = useRoute()
 const router = useRouter()
 const databaseStore = useDatabaseStore()
-
-const DYNAMIC_AGENT_ID = 'DynamicAgent'
 
 // 状态
 const loading = ref(true)
@@ -340,12 +378,17 @@ const skillOptions = ref([])
 const agentType = computed(() => route.params.type) // 'builtin' | 'custom'
 const agentId = computed(() => route.params.id)
 const isBuiltin = computed(() => agentType.value === 'builtin')
+const customRuntimeAgentId = computed(() => route.query.runtime_agent_id || AGENT_PLATFORM_AGENT_ID)
+const isPlatformCustom = computed(
+  () => !isBuiltin.value && customRuntimeAgentId.value === AGENT_PLATFORM_AGENT_ID
+)
+const canEdit = computed(() => true)
 
 const configData = computed(() => {
   if (isBuiltin.value) {
-    return builtinConfig.value || {}
+    return normalizeBuiltinConfig(builtinConfig.value || {})
   }
-  return agentData.value?.config_json?.context || agentData.value?.config_json || {}
+  return normalizePlatformConfig(agentData.value?.config_json || {})
 })
 
 const modeValue = computed(() => configData.value?.multi_agent_mode || 'disabled')
@@ -354,7 +397,8 @@ const modeLabel = computed(() => {
   const labels = {
     disabled: '单智能体',
     supervisor: 'Supervisor',
-    deep_agents: 'Deep Agents'
+    deep_agents: 'Deep Agents',
+    swarm: 'Swarm'
   }
   return labels[modeValue.value] || '单智能体'
 })
@@ -363,7 +407,8 @@ const modeColor = computed(() => {
   const colors = {
     disabled: 'default',
     supervisor: 'blue',
-    deep_agents: 'green'
+    deep_agents: 'green',
+    swarm: 'purple'
   }
   return colors[modeValue.value] || 'default'
 })
@@ -371,6 +416,7 @@ const modeColor = computed(() => {
 const modeIcon = computed(() => {
   if (modeValue.value === 'supervisor') return Users
   if (modeValue.value === 'deep_agents') return Zap
+  if (modeValue.value === 'swarm') return Shuffle
   return Bot
 })
 
@@ -385,14 +431,22 @@ const hasSubagents = computed(() => {
 
 const subagents = computed(() => configData.value?.subagents || [])
 const examples = computed(() => agentData.value?.examples || [])
+const platformConfig = computed(() =>
+  isPlatformCustom.value ? agentData.value?.config_json || {} : {}
+)
+const platformBlueprint = computed(() =>
+  platformConfig.value?.blueprint && typeof platformConfig.value.blueprint === 'object'
+    ? platformConfig.value.blueprint
+    : null
+)
 
-const normalizeConfig = (config) => {
+const normalizeBuiltinConfig = (config) => {
   if (!config || typeof config !== 'object') return {}
-  if (config.context && typeof config.context === 'object') return config.context
-  if (config.config_json && typeof config.config_json === 'object') {
-    return config.config_json.context || config.config_json
-  }
   return config
+}
+
+const normalizePlatformConfig = (config) => {
+  return normalizeAgentPlatformConfig(config) || {}
 }
 
 // 方法
@@ -404,11 +458,15 @@ const fetchAgentData = async () => {
       const detail = await agentApi.getAgentDetail(agentId.value)
       agentData.value = detail
       const configRes = await agentApi.getAgentConfig(agentId.value)
-      builtinConfig.value = normalizeConfig(configRes?.config)
+      builtinConfig.value = configRes?.config || {}
     } else {
       // 获取自定义智能体配置
-      const res = await agentApi.getAgentConfigProfile(DYNAMIC_AGENT_ID, agentId.value)
-      agentData.value = res.config || res
+      const res = await agentApi.getAgentConfigProfile(customRuntimeAgentId.value, agentId.value)
+      const profile = res.config || res
+      if (!isAgentPlatformConfig(profile?.config_json || {})) {
+        throw new Error('仅支持新的 agent_platform_v2 自定义智能体配置')
+      }
+      agentData.value = profile
       builtinConfig.value = {}
     }
   } catch (e) {
@@ -421,7 +479,7 @@ const fetchAgentData = async () => {
 
 const fetchOptions = async () => {
   try {
-    const detail = await agentApi.getAgentDetail(DYNAMIC_AGENT_ID)
+    const detail = await agentApi.getAgentDetail(AGENT_PLATFORM_AGENT_ID)
     const items = detail.configurable_items || {}
 
     if (items.tools) {
@@ -469,7 +527,10 @@ const enterEditMode = () => {
       name: agentData.value?.name || '',
       description: agentData.value?.description || '',
       multi_agent_mode: 'disabled',
+      goal: '',
+      task_scope: '',
       system_prompt: configData.value?.system_prompt || '',
+      supervisor_prompt: '',
       tools: configData.value?.tools || [],
       knowledges: configData.value?.knowledges || [],
       mcps: configData.value?.mcps || [],
@@ -478,17 +539,28 @@ const enterEditMode = () => {
       examples: [...(agentData.value?.examples || [])]
     }
   } else {
-    editForm.value = {
-      name: agentData.value?.name || '',
-      description: agentData.value?.description || '',
-      multi_agent_mode: configData.value?.multi_agent_mode || 'disabled',
-      system_prompt: configData.value?.system_prompt || '',
-      tools: configData.value?.tools || [],
-      knowledges: configData.value?.knowledges || [],
-      mcps: configData.value?.mcps || [],
-      skills: configData.value?.skills || [],
-      subagents: JSON.parse(JSON.stringify(configData.value?.subagents || [])),
-      examples: [...(agentData.value?.examples || [])]
+    if (isPlatformCustom.value) {
+      const blueprint = platformBlueprint.value || {}
+      const normalizedWorkers = JSON.parse(JSON.stringify(configData.value?.subagents || []))
+      editForm.value = {
+        name: agentData.value?.name || blueprint.name || '',
+        description: agentData.value?.description || blueprint.description || '',
+        multi_agent_mode: configData.value?.multi_agent_mode || 'disabled',
+        goal: blueprint.goal || configData.value?.goal || '',
+        task_scope: blueprint.task_scope || configData.value?.task_scope || '',
+        system_prompt: blueprint.system_prompt || configData.value?.system_prompt || '',
+        supervisor_prompt: blueprint.supervisor_prompt || configData.value?.supervisor_prompt || '',
+        default_model: blueprint.default_model || configData.value?.default_model || '',
+        tools: blueprint.tools || configData.value?.tools || [],
+        knowledges: blueprint.knowledge_ids || configData.value?.knowledges || [],
+        mcps: blueprint.mcps || configData.value?.mcps || [],
+        skills: blueprint.skills || configData.value?.skills || [],
+        subagents: normalizedWorkers,
+        examples: [...(agentData.value?.examples || [])]
+      }
+    } else {
+      message.error('当前自定义智能体不是新平台配置，无法在此编辑')
+      return
     }
   }
   isEditing.value = true
@@ -517,25 +589,28 @@ const saveChanges = async () => {
         skills: editForm.value.skills
       })
     } else {
-      // 保存自定义智能体配置
-      const contextConfig = {
-        multi_agent_mode: editForm.value.multi_agent_mode,
-        system_prompt: editForm.value.system_prompt,
-        tools: editForm.value.tools,
-        knowledges: editForm.value.knowledges,
-        mcps: editForm.value.mcps,
-        skills: editForm.value.skills,
-        subagents: editForm.value.subagents
+      if (isPlatformCustom.value) {
+        const blueprint = buildPlatformBlueprintPayload(editForm.value)
+        const validation = await agentDesignApi.validate({ blueprint })
+        if (!validation.valid) {
+          message.error(validation.errors?.[0] || 'Blueprint 校验失败')
+          return
+        }
+        const compiled = await agentDesignApi.compile({ blueprint })
+        await agentApi.updateAgentConfigProfile(customRuntimeAgentId.value, agentId.value, {
+          name: editForm.value.name.trim(),
+          description: editForm.value.description?.trim() || '',
+          examples: editForm.value.examples.filter((e) => e?.trim()),
+          config_json: {
+            version: 'agent_platform_v2',
+            blueprint,
+            spec: compiled.spec
+          }
+        })
+      } else {
+        message.error('当前自定义智能体不是新平台配置，无法保存')
+        return
       }
-
-      const payload = {
-        name: editForm.value.name.trim(),
-        description: editForm.value.description?.trim() || '',
-        examples: editForm.value.examples.filter((e) => e?.trim()),
-        config_json: { context: contextConfig }
-      }
-
-      await agentApi.updateAgentConfigProfile(DYNAMIC_AGENT_ID, agentId.value, payload)
     }
 
     message.success('保存成功')
@@ -549,10 +624,57 @@ const saveChanges = async () => {
   }
 }
 
+const buildPlatformBlueprintPayload = (formState) => {
+  const modeMap = {
+    disabled: 'single',
+    supervisor: 'supervisor',
+    deep_agents: 'deep_agents',
+    swarm: 'swarm_handoff'
+  }
+  return {
+    name: formState.name.trim(),
+    description: formState.description?.trim() || '',
+    goal: formState.goal?.trim() || formState.description?.trim() || formState.name.trim(),
+    task_scope: formState.task_scope?.trim() || '',
+    execution_mode: modeMap[formState.multi_agent_mode] || 'single',
+    system_prompt: formState.system_prompt?.trim() || '',
+    supervisor_prompt: formState.supervisor_prompt?.trim() || '',
+    default_model: formState.default_model || null,
+    tools: [...(formState.tools || [])],
+    knowledge_ids: [...(formState.knowledges || [])],
+    mcps: [...(formState.mcps || [])],
+    skills: [...(formState.skills || [])],
+    max_parallel_workers:
+      formState.multi_agent_mode === 'disabled' ? 1 : Math.max(1, (formState.subagents || []).length || 1),
+    max_dynamic_workers:
+      formState.multi_agent_mode === 'deep_agents' || formState.multi_agent_mode === 'swarm'
+        ? Math.max(1, (formState.subagents || []).length || 1)
+        : 0,
+    workers:
+      formState.multi_agent_mode === 'disabled'
+        ? []
+        : (formState.subagents || []).map((agent) => ({
+            key: agent.key || null,
+            name: (agent.name || '').trim(),
+            description: agent.description || '',
+            objective: agent.objective || agent.description || '',
+            system_prompt: agent.system_prompt || '',
+            kind: agent.kind || 'reasoning',
+            model: agent.model || null,
+            tools: [...(agent.tools || [])],
+            knowledge_ids: [...(agent.knowledges || [])],
+            mcps: [...(agent.mcps || [])],
+            skills: [...(agent.skills || [])],
+            depends_on: [...(agent.depends_on || [])],
+            allowed_next: [...(agent.allowed_next || [])]
+          }))
+  }
+}
+
 const deleteAgent = async () => {
   deleting.value = true
   try {
-    await agentApi.deleteAgentConfigProfile(DYNAMIC_AGENT_ID, agentId.value)
+    await agentApi.deleteAgentConfigProfile(customRuntimeAgentId.value, agentId.value)
     message.success('删除成功')
     router.push('/agent-square')
   } catch (e) {
@@ -572,7 +694,7 @@ const goChat = () => {
     router.push(`/agent/${agentId.value}`)
   } else {
     router.push({
-      path: `/agent/${DYNAMIC_AGENT_ID}`,
+      path: `/agent/${customRuntimeAgentId.value}`,
       query: { config_id: agentId.value }
     })
   }
@@ -585,7 +707,7 @@ onMounted(() => {
 })
 
 watch(
-  () => route.params,
+  () => route.fullPath,
   () => {
     if (route.params.id) {
       isEditing.value = false

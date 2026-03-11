@@ -2,27 +2,40 @@
 
 ## 智能体开发
 
-系统基于 [LangGraph](https://github.com/langchain-ai/langgraph) 并通过统一的 `AgentManager` 管理所有智能体。`src/agents/__init__.py` 会在启动时遍历 `src/agents` 目录，对每个包含 `__init__.py` 的子包执行自动发现：所有继承 `BaseAgent` 的类都会被注册并立即初始化，因此只要代码落位正确，就不需要再手动登记或修改管理器。
+系统基于 [LangGraph](https://github.com/langchain-ai/langgraph) 和 Deep Agents 构建，并通过统一的 `AgentManager` 管理运行时入口。当前 `src/agents/__init__.py` 只自动注册两个公开 Agent：
 
-仓库预置了若干可直接运行的智能体：`chatbot` 聚焦对话与动态工具调度，`reporter` 演示报告类链路，`deep_agent` 提供深度分析能力。这些目录展示了上下文类、Graph 构造方式、子智能体引用以及中间件组合的范例，新增功能时可以直接复用。
+- `SqlReporterAgent`：产品内置的数据库报表助手
+- `AgentPlatformAgent`：新平台自定义 Agent 的统一运行时入口
+
+这意味着旧的 `chatbot`、`deep_agent`、`doc_organizer`、`architect_agent`、`dynamic_agent` 已不再作为可注册 Agent 存在；相关能力已经迁移为模板、示例和运行时组件。
+
+当前推荐的开发入口如下：
+
+- 业务内置 Agent：参考 `src/agents/reporter`
+- 自定义 Agent 运行时：参考 `src/agents/agent_platform`
+- 设计期 blueprint / spec / templates / examples：参考 `src/agent_platform`
 
 ### 智能体元数据配置
 
 每个智能体可以通过在智能体目录下创建 `metadata.toml` 文件来配置元数据信息。这个文件使用 TOML 格式，包含以下字段：
 
-- `name`: 智能体显示名称
-- `description`: 智能体功能描述
-- `examples`: 示例问题列表（数组格式）
+- `name`：智能体显示名称
+- `description`：智能体功能描述
+- `examples`：示例问题列表（数组格式）
 
-例如，`src/agents/chatbot/metadata.toml`：
+例如，`src/agents/agent_platform/metadata.toml`：
 
-<<< @/../src/agents/chatbot/metadata.toml
+<<< @/../src/agents/agent_platform/metadata.toml
 
 **注意**：`metadata.toml` 文件是可选的，如果没有提供，系统将使用智能体类的基本属性。
 
 ### 创建新的智能体
 
-在 `src/agents` 下新建一个包，保持与现有目录一致的结构：放置 Graph 构造逻辑（通常命名为 `graph.py`），并在包内的 `__init__.py` 中暴露主类。
+如果你要新增一个“公开运行时入口”，可以在 `src/agents` 下新增一个包，并在包内的 `__init__.py` 暴露主类。但当前项目已经收敛到两个运行时入口，因此更常见的扩展方式不是再创建一个新 Agent 类，而是：
+
+1. 在 `src/agent_platform` 下新增 blueprint / spec / template / example
+2. 通过 `AgentPlatformAgent` 承载自定义 Agent 的运行
+3. 仅在确有必要时新增新的业务内置 Agent
 
 智能体类必须继承 `src.agents.common.BaseAgent`，同时实现异步的 `get_graph` 方法来返回编译后的 LangGraph 实例，并配置好 `checkpointer`，否则无法从历史对话中恢复。
 
@@ -31,6 +44,90 @@
 案例1 基于MySQL工具，以及自定义 MCP Server 的数据库报表助手。
 
 <<< @/../src/agents/reporter/graph.py
+
+### Agent Platform 设计链路
+
+自定义 Agent 不再直接写运行时 `context`，而是统一走下面的设计链路：
+
+1. `AgentBlueprint`
+2. `Validate`
+3. `AgentSpec`
+4. `Deploy`
+5. `AgentPlatformAgent` 运行
+
+对应核心目录：
+
+- `src/agent_platform/blueprint`
+- `src/agent_platform/spec`
+- `src/agent_platform/template_catalog.py`
+- `src/agent_platform/example_catalog.py`
+- `src/agents/agent_platform`
+
+对应设计期 API：
+
+- `POST /api/agent-design/draft`
+- `POST /api/agent-design/validate`
+- `POST /api/agent-design/compile`
+- `POST /api/agent-design/deploy`
+- `GET /api/agent-design/templates`
+- `POST /api/agent-design/templates/{template_id}/draft`
+- `GET /api/agent-design/examples`
+
+### 清理旧自定义配置
+
+当前 `AgentPlatformAgent` 已只接受 `agent_platform_v2` 配置；旧的 `config_json.context` 自定义配置不会再被返回或写入。
+
+如果数据库中仍残留旧配置，可以先预览，再按需删除：
+
+```bash
+docker compose exec api uv run python scripts/cleanup_legacy_agent_platform_configs.py
+```
+
+实际删除：
+
+```bash
+docker compose exec api uv run python scripts/cleanup_legacy_agent_platform_configs.py --delete
+```
+
+如需只处理单个部门：
+
+```bash
+docker compose exec api uv run python scripts/cleanup_legacy_agent_platform_configs.py --department-id 12 --delete
+```
+
+脚本行为：
+
+- 只处理 `agent_id == AgentPlatformAgent` 且 `config_json.version != agent_platform_v2` 的记录
+- 默认只预览，不修改数据
+- 删除 legacy 默认配置后，如同部门仍存在有效新配置，会自动补一个默认配置
+
+### 模板与开发示例
+
+旧内置 Agent 的能力已经沉淀为两类资产：
+
+- blueprint templates：用于产品创建入口快速起步
+- development examples：用于开发者理解完整 blueprint + spec 的样例
+
+当前 legacy 模板位于 `src/agent_platform/template_catalog.py`，包括：
+
+- `legacy/knowledge_qa`
+- `legacy/research_analyst`
+- `legacy/document_organizer`
+
+当前开发示例位于 `src/agent_platform/example_catalog.py`，包括：
+
+- `legacy/knowledge_qa_minimal`
+- `legacy/research_analyst_deep`
+- `legacy/document_organizer_review`
+
+这些示例已经包含完整的 `AgentBlueprint` 和编译后的 `AgentSpec`，适合作为开发调试、集成测试和新能力扩展的起点。
+
+产品创建入口也已经直接接入这些示例：
+
+- `一句话创建 Agent` 工作台可直接加载 example blueprint
+- `创建智能体` 弹窗可直接从 example 起步再修改
+
+如果你只是想复用旧能力，不需要再恢复旧内置 agent 代码，直接从 template 或 example 开始即可。
 
 ### 工具系统
 
@@ -96,7 +193,11 @@ class ReporterContext(BaseContext):
 
 智能体实例的生命周期交给管理器处理，会在自动发现时完成初始化并缓存单例，以便快速响应请求。在容器内热重载时，只要保存文件即可触发重新导入；需要强制刷新可调用 `agent_manager.get_agent(<id>, reload=True)`。
 
-更多动态工具选择与 MCP 注册的例子，见 `src/agents/chatbot/graph.py` 中的中间件组合。
+多 worker 编排、Supervisor 路由和 Swarm Handoff 的运行时构造，见：
+
+- `src/agents/agent_platform/factory.py`
+- `src/agents/agent_platform/supervisor.py`
+- `src/agents/agent_platform/swarm_builder.py`
 
 ### 拓展现有智能体
 
@@ -174,23 +275,16 @@ async def get_graph(self):
 
 MCP (Model Context Protocol) 服务的配置现已全面支持通过系统管理界面或 API 进行动态管理，数据持久化存储在数据库中。`src/services/mcp_service.py` 仅作为核心逻辑层和默认配置的存放处，不再建议直接修改代码来添加服务器。
 
-## DynamicAgent 团队编排
+## 多 Agent 设计与运行
 
-`DynamicAgent` 支持三种协作模式：
+新的多 Agent 体系不再暴露 `DynamicAgent`，而是统一收敛到 `AgentPlatformAgent` 运行时。执行模式与 `AgentBlueprint.execution_mode` 对齐：
 
-- `disabled`：单智能体
-- `supervisor`：子图可观测调度
-- `deep_agents`：并行执行优先
+- `single`
+- `supervisor`
+- `deep_agents`
+- `swarm_handoff`
 
-新版本提供团队级 API：
-
-- `POST /api/chat/agent/DynamicAgent/team/wizard`：自然语言草稿生成
-- `POST /api/chat/agent/DynamicAgent/team/validate`：职责/依赖/通信校验
-- `POST /api/chat/agent/DynamicAgent/team/create`：保存为配置
-- `POST /api/chat/agent/DynamicAgent/team/auto-create`：一句话自动组建并保存
-- `POST /api/chat/agent/DynamicAgent/team/benchmark`：三模式对比
-
-详见 [多 Agent 团队编排](/latest/advanced/team-orchestration)。
+设计入口使用 `/api/agent-design/*`，运行入口使用 `AgentPlatformAgent`。如果你想了解更细的多 Agent 编排规则，见 [多 Agent 团队编排](/latest/advanced/team-orchestration)。
 
 ### MCP 服务器管理
 

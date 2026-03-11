@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.agents.common.subagent_runtime import SubagentRuntime, SubagentStatus
 from src.utils import logger
@@ -70,8 +70,7 @@ class SpawnSubagentTool(BaseTool):
     # Runtime instance (injected at registration time)
     runtime: SubagentRuntime = Field(default_factory=SubagentRuntime)
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def _run(self, **kwargs: Any) -> str:
         """Sync fallback — not expected to be used."""

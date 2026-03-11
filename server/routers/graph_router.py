@@ -184,7 +184,7 @@ async def get_graph_stats(
     """
     try:
         # 使用适配器的统计信息 (适用于 kb_ 开头的数据库和 LightRAG 数据库)
-        if db_id.startswith("kb_") or knowledge_base.is_lightrag_database(db_id):
+        if db_id.startswith("kb_") or await knowledge_base.is_lightrag_database(db_id):
             adapter = await _get_graph_adapter(db_id)
             stats_data = await adapter.get_stats()
             return {"success": True, "data": stats_data}

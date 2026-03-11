@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import ast
 import concurrent.futures
 import json
 import os
@@ -18,7 +19,7 @@ import time
 
 import sqlparse
 from langchain.tools import tool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.agents.common import load_chat_model
 from src.agents.common.toolkits.database.security import SQLSecurityChecker
@@ -52,6 +53,44 @@ def _is_simple_query(question: str) -> bool:
     return any(marker in text for marker in simple_markers) and len(text) <= 60
 
 
+def _parse_structured_value(value):
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text or text.lower() == "none":
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    try:
+        return ast.literal_eval(text)
+    except Exception:
+        return value
+
+
+def _coerce_dict_value(value, *, allow_none: bool) -> dict | None | object:
+    if isinstance(value, dict):
+        return value
+    parsed = _parse_structured_value(value)
+    if parsed is None:
+        return None if allow_none else {}
+    if isinstance(parsed, dict):
+        return parsed
+    return value
+
+
+def _coerce_list_value(value, *, allow_none: bool) -> list | None | object:
+    if isinstance(value, list):
+        return value
+    parsed = _parse_structured_value(value)
+    if parsed is None:
+        return None if allow_none else []
+    if isinstance(parsed, list):
+        return parsed
+    return value
+
+
 # ---------- Pydantic 参数模型 ----------
 
 
@@ -71,6 +110,11 @@ class SampleRelevanceInput(BaseModel):
     question: str = Field(description="当前用户问题")
     qa_pairs: list[dict] = Field(default_factory=list, description="候选样本列表")
 
+    @field_validator("qa_pairs", mode="before")
+    @classmethod
+    def _normalize_qa_pairs(cls, value):
+        return _coerce_list_value(value, allow_none=False)
+
 
 class ValidateSqlInput(BaseModel):
     sql: str = Field(description="需要验证的 SQL 语句")
@@ -85,20 +129,40 @@ class SchemaCompletenessInput(BaseModel):
     schema_info: dict = Field(description="Schema 信息")
     query_analysis: dict = Field(description="查询分析结果")
 
+    @field_validator("schema_info", "query_analysis", mode="before")
+    @classmethod
+    def _normalize_dict_fields(cls, value):
+        return _coerce_dict_value(value, allow_none=False)
+
 
 class ErrorPatternInput(BaseModel):
     error_history: list[dict] = Field(description="错误历史记录")
+
+    @field_validator("error_history", mode="before")
+    @classmethod
+    def _normalize_error_history(cls, value):
+        return _coerce_list_value(value, allow_none=False)
 
 
 class RecoveryStrategyInput(BaseModel):
     error_analysis: dict = Field(description="错误分析结果")
     current_state: dict = Field(description="当前状态信息")
 
+    @field_validator("error_analysis", "current_state", mode="before")
+    @classmethod
+    def _normalize_recovery_dicts(cls, value):
+        return _coerce_dict_value(value, allow_none=False)
+
 
 class AutoFixInput(BaseModel):
     sql: str = Field(description="原始 SQL")
     error_message: str = Field(description="错误信息")
     schema_info: dict | None = Field(default=None, description="Schema 信息")
+
+    @field_validator("schema_info", mode="before")
+    @classmethod
+    def _normalize_schema_info(cls, value):
+        return _coerce_dict_value(value, allow_none=True)
 
 
 class GenerateSqlInput(BaseModel):
@@ -107,6 +171,21 @@ class GenerateSqlInput(BaseModel):
     value_mappings: dict | None = Field(default=None, description="值映射信息")
     sample_qa_pairs: list[dict] | None = Field(default=None, description="相似样本")
     db_type: str | None = Field(default=None, description="数据库类型")
+
+    @field_validator("schema_info", mode="before")
+    @classmethod
+    def _normalize_schema_dict(cls, value):
+        return _coerce_dict_value(value, allow_none=False)
+
+    @field_validator("value_mappings", mode="before")
+    @classmethod
+    def _normalize_value_mappings(cls, value):
+        return _coerce_dict_value(value, allow_none=True)
+
+    @field_validator("sample_qa_pairs", mode="before")
+    @classmethod
+    def _normalize_sample_qa_pairs(cls, value):
+        return _coerce_list_value(value, allow_none=True)
 
 
 # ---------- 值映射后处理（复用老项目正则逻辑） ----------

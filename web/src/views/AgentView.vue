@@ -50,6 +50,15 @@
           @open-agent-modal="openAgentModal"
         >
           <template #header-right>
+            <div
+              v-if="canEditCurrentCustomAgent"
+              type="button"
+              class="agent-nav-btn"
+              @click="goEditCurrentCustomAgent"
+            >
+              <Pencil size="18" class="nav-btn-icon" />
+              <span class="text hide-text">编辑蓝图</span>
+            </div>
             <a-dropdown v-if="selectedAgentId" :trigger="['click']">
               <div type="button" class="agent-nav-btn">
                 <Settings2 size="18" class="nav-btn-icon" />
@@ -138,7 +147,7 @@ import {
   EyeOutlined
 } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
-import { Settings2, Ellipsis, ChevronDown, Star } from 'lucide-vue-next'
+import { Settings2, Ellipsis, ChevronDown, Star, Pencil } from 'lucide-vue-next'
 import AgentChatComponent from '@/components/AgentChatComponent.vue'
 import FeedbackModalComponent from '@/components/dashboard/FeedbackModalComponent.vue'
 import { useUserStore } from '@/stores/user'
@@ -148,10 +157,11 @@ import { ChatExporter } from '@/utils/chatExporter'
 import { handleChatError } from '@/utils/errorHandler'
 import { onClickOutside } from '@vueuse/core'
 import { agentApi } from '@/apis/agent_api'
+import { AGENT_PLATFORM_AGENT_ID, isAgentPlatformConfig } from '@/utils/agentPlatformConfig'
 
 import { storeToRefs } from 'pinia'
 
-const DYNAMIC_AGENT_ID = 'DynamicAgent'
+const CUSTOM_RUNTIME_AGENT_IDS = [AGENT_PLATFORM_AGENT_ID]
 
 // 组件引用
 const feedbackModal = ref(null)
@@ -172,10 +182,13 @@ const {
   selectedConfigSummary
 } = storeToRefs(agentStore)
 const customAgentOptions = ref([])
+const canEditCurrentCustomAgent = computed(
+  () => selectedAgentId.value === AGENT_PLATFORM_AGENT_ID && Boolean(selectedAgentConfigId.value)
+)
 
 const selectableAgents = computed(() => {
   const builtinAgents = (agents.value || [])
-    .filter((agent) => agent.id !== DYNAMIC_AGENT_ID)
+    .filter((agent) => agent.product_visible !== false)
     .map((agent) => ({
       ...agent,
       _isCustom: false,
@@ -193,24 +206,36 @@ const selectableAgents = computed(() => {
 
 const isAgentOptionSelected = (agent) => {
   if (agent._isCustom) {
-    return selectedAgentId.value === DYNAMIC_AGENT_ID && selectedAgentConfigId.value === agent.id
+    return (
+      selectedAgentId.value === agent._runtimeAgentId && selectedAgentConfigId.value === agent.id
+    )
   }
   return agent.id === selectedAgentId.value
 }
 
 const fetchCustomAgentOptions = async () => {
   try {
-    const configsRes = await agentApi.getAgentConfigs(DYNAMIC_AGENT_ID)
-    const configs = configsRes.configs || []
-    const detailedConfigs = await Promise.all(
-      configs.map((config) =>
-        agentApi
-          .getAgentConfigProfile(DYNAMIC_AGENT_ID, config.id)
-          .then((res) => res.config || res)
-          .catch(() => config)
-      )
+    const groupedConfigs = await Promise.all(
+      CUSTOM_RUNTIME_AGENT_IDS.map(async (runtimeAgentId) => {
+        const configsRes = await agentApi.getAgentConfigs(runtimeAgentId)
+        const configs = configsRes.configs || []
+        return Promise.all(
+          configs.map((config) =>
+            agentApi
+              .getAgentConfigProfile(runtimeAgentId, config.id)
+              .then((res) => ({
+                ...(res.config || res),
+                _runtimeAgentId: runtimeAgentId
+              }))
+              .catch(() => ({
+                ...config,
+                _runtimeAgentId: runtimeAgentId
+              }))
+          )
+        )
+      })
     )
-    customAgentOptions.value = detailedConfigs
+    customAgentOptions.value = groupedConfigs.flat().filter((item) => isAgentPlatformConfig(item?.config_json))
   } catch (error) {
     console.error('加载自定义智能体列表失败:', error)
     customAgentOptions.value = []
@@ -246,7 +271,7 @@ const openAgentModal = () => {
 // 从弹窗中选择智能体
 const selectAgentFromModal = async (agent) => {
   if (agent._isCustom) {
-    await agentStore.selectAgent(DYNAMIC_AGENT_ID)
+    await agentStore.selectAgent(agent._runtimeAgentId)
     await agentStore.selectAgentConfig(agent.id)
   } else {
     await selectAgent(agent.id)
@@ -261,6 +286,14 @@ const selectAgentConfig = async (configId) => {
     console.error('切换配置出错:', error)
     message.error('切换配置失败')
   }
+}
+
+const goEditCurrentCustomAgent = () => {
+  if (!canEditCurrentCustomAgent.value) return
+  router.push({
+    path: `/agent-square/custom/${selectedAgentConfigId.value}`,
+    query: { runtime_agent_id: AGENT_PLATFORM_AGENT_ID }
+  })
 }
 
 // 更多菜单相关
@@ -341,9 +374,9 @@ const handleFeedback = () => {
 const handlePreview = () => {
   closeMoreMenu()
   if (selectedAgentId.value) {
-    if (selectedAgentId.value === DYNAMIC_AGENT_ID && selectedAgentConfigId.value) {
+    if (CUSTOM_RUNTIME_AGENT_IDS.includes(selectedAgentId.value) && selectedAgentConfigId.value) {
       const configId = selectedAgentConfigId.value
-      window.open(`/agent/${DYNAMIC_AGENT_ID}?config_id=${configId}`, '_blank')
+      window.open(`/agent/${selectedAgentId.value}?config_id=${configId}`, '_blank')
       return
     }
     window.open(`/agent/${selectedAgentId.value}`, '_blank')

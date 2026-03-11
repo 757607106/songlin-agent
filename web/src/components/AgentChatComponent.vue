@@ -109,6 +109,36 @@
                 </span>
               </div>
             </div>
+            <div
+              v-if="
+                (isProcessing || approvalState.showModal) &&
+                (currentActiveWorker || currentRecoveryPoint || currentExecutionTimeline.length)
+              "
+              class="execution-trace"
+            >
+              <div class="execution-trace__header">
+                <span class="execution-trace__label">执行轨迹</span>
+                <div class="execution-trace__chips">
+                  <span v-if="currentRecoveryPoint" class="worker-chip is-recovery">
+                    恢复点 {{ currentRecoveryPoint }}
+                  </span>
+                  <span v-if="currentActiveWorker" class="worker-chip">{{ currentActiveWorker }}</span>
+                </div>
+              </div>
+              <div v-if="currentExecutionContextSummary" class="execution-trace__summary">
+                {{ currentExecutionContextSummary }}
+              </div>
+              <div v-if="currentExecutionTimeline.length" class="execution-trace__timeline">
+                <span
+                  v-for="item in currentExecutionTimeline"
+                  :key="item.key"
+                  class="trace-pill"
+                  :class="`is-${item.tone}`"
+                >
+                  {{ item.label }}
+                </span>
+              </div>
+            </div>
           </div>
           <div class="bottom" :class="{ 'start-screen': !conversations.length }">
             <!-- 人工审批弹窗 - 放在输入框上方 -->
@@ -505,6 +535,128 @@ const activeSubagent = computed(() => {
   const threadState = currentThreadState.value
   return threadState ? threadState.activeSubagent : null
 })
+const currentActiveWorker = computed(() => {
+  const threadState = currentThreadState.value
+  return threadState?.activeWorker || currentAgentState.value?.active_worker || activeSubagent.value || ''
+})
+const currentExecutionAuditEvents = computed(() => {
+  const threadState = currentThreadState.value
+  return Array.isArray(threadState?.executionAuditEvents) ? threadState.executionAuditEvents : []
+})
+const currentRecoveryPoint = computed(() => {
+  const threadState = currentThreadState.value
+  const agentState = threadState?.agentState || currentAgentState.value || {}
+  const activeWorker = agentState?.active_worker || threadState?.activeWorker
+  if (activeWorker) {
+    return activeWorker
+  }
+
+  const routeLog = Array.isArray(agentState?.route_log) ? agentState.route_log : []
+  if (routeLog.length > 0) {
+    return routeLog[routeLog.length - 1]
+  }
+
+  const stageOutputs = agentState?.stage_outputs
+  if (stageOutputs && typeof stageOutputs === 'object' && !Array.isArray(stageOutputs)) {
+    const keys = Object.keys(stageOutputs)
+    if (keys.length > 0) {
+      return keys[keys.length - 1]
+    }
+  }
+  return ''
+})
+const currentExecutionContextSummary = computed(() => {
+  const agentState = currentAgentState.value || currentThreadState.value?.agentState || {}
+  const routeLog = Array.isArray(agentState?.route_log) ? agentState.route_log : []
+  const stageOutputs =
+    agentState?.stage_outputs && typeof agentState.stage_outputs === 'object'
+      ? agentState.stage_outputs
+      : {}
+  const stageCount = Object.keys(stageOutputs).length
+  const latestStageKey = currentRecoveryPoint.value
+  const latestStageStatus =
+    latestStageKey && stageOutputs[latestStageKey] ? stageOutputs[latestStageKey].status || '' : ''
+
+  if (!routeLog.length && !stageCount) {
+    return ''
+  }
+
+  if (latestStageKey && latestStageStatus) {
+    return `已完成 ${stageCount} 个阶段，当前恢复点 ${latestStageKey}，最近状态 ${latestStageStatus}`
+  }
+  if (latestStageKey) {
+    return `已完成 ${stageCount} 个阶段，当前恢复点 ${latestStageKey}`
+  }
+  return `已记录 ${routeLog.length} 次 worker 路由，完成 ${stageCount} 个阶段`
+})
+const summarizeExecutionAuditEvent = (entry, index) => {
+  const event = String(entry?.event || entry?.auditEventType || '').trim()
+  const payload = entry?.payload || {}
+  const key = `${entry?.timestamp || 'ts'}-${event || 'event'}-${index}`
+
+  if (event === 'worker.route') {
+    return {
+      key,
+      label: `切换到 ${payload.worker || 'worker'}`,
+      tone: 'worker'
+    }
+  }
+  if (event === 'supervisor.route') {
+    return {
+      key,
+      label: `调度 ${payload.target || payload.to || payload.agent || '下一步'}`,
+      tone: 'route'
+    }
+  }
+  if (event === 'supervisor.finish') {
+    return {
+      key,
+      label: '执行完成',
+      tone: 'success'
+    }
+  }
+  if (event === 'supervisor.guard_finish' || event === 'supervisor.retry_exhausted') {
+    return {
+      key,
+      label: '流程终止',
+      tone: 'warning'
+    }
+  }
+  if (event === 'tool.completed') {
+    return {
+      key,
+      label: `工具 ${payload.name || payload.tool_name || '调用'} 完成`,
+      tone: 'tool'
+    }
+  }
+  if (event === 'interrupt.requested') {
+    return {
+      key,
+      label: '等待人工审批',
+      tone: 'warning'
+    }
+  }
+  if (event === 'interrupt.resumed') {
+    const decision = String(payload.decision || '').trim()
+    const decisionLabel =
+      decision === 'approve' ? '已批准恢复' : decision === 'reject' ? '已拒绝恢复' : '已编辑后恢复'
+    return {
+      key,
+      label: decisionLabel,
+      tone: decision === 'reject' ? 'warning' : 'success'
+    }
+  }
+  return {
+    key,
+    label: event || '执行事件',
+    tone: 'neutral'
+  }
+}
+const currentExecutionTimeline = computed(() => {
+  return currentExecutionAuditEvents.value
+    .slice(-8)
+    .map((entry, index) => summarizeExecutionAuditEvent(entry, index))
+})
 const currentRunId = computed(() => {
   const threadState = currentThreadState.value
   return threadState?.currentRunId || ''
@@ -546,6 +698,8 @@ const getThreadState = (threadId) => {
       activeStreamSessionId: null,
       onGoingConv: createOnGoingConvState(),
       agentState: null, // 添加 agentState 字段
+      executionAuditEvents: [], // 流式执行审计事件
+      activeWorker: null, // 当前活动的 worker
       activeSubagent: null, // 当前活动的子 Agent
       subagentSteps: [], // 子 Agent 执行步骤历史
       currentRunId: null
@@ -601,6 +755,10 @@ const resetOnGoingConv = (threadId = null, options = {}) => {
 
       // 直接重置对话状态
       threadState.onGoingConv = createOnGoingConvState()
+      threadState.executionAuditEvents = []
+      threadState.activeWorker = null
+      threadState.activeSubagent = null
+      threadState.subagentSteps = []
     }
   } else {
     // 如果没有当前线程，清理所有线程状态
@@ -745,10 +903,14 @@ const fetchAgentState = async (agentId, threadId) => {
     const ts = getThreadState(targetChatId)
     if (ts) {
       ts.agentState = res.agent_state || null
+      ts.activeWorker = res.agent_state?.active_worker || null
     } else {
       // 如果 targetChatId 对应的 state 不存在，创建一个
       const newTs = getThreadState(threadId)
-      if (newTs) newTs.agentState = res.agent_state || null
+      if (newTs) {
+        newTs.agentState = res.agent_state || null
+        newTs.activeWorker = res.agent_state?.active_worker || null
+      }
     }
   } catch {
     return
@@ -1701,7 +1863,7 @@ watch(
 .generating-status {
   display: flex;
   justify-content: flex-start;
-  padding: 1rem 0;
+  padding: 1rem 0 0.5rem;
   animation: fadeInUp 0.4s ease-out;
   transition: all 0.2s;
 }
@@ -1745,6 +1907,109 @@ watch(
       -webkit-background-clip: unset;
       background-clip: unset;
     }
+  }
+}
+
+.execution-trace {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--gray-150);
+  border-radius: 12px;
+  background: var(--gray-25);
+
+  .execution-trace__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .execution-trace__chips {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .execution-trace__label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--gray-600);
+    letter-spacing: 0.04em;
+  }
+
+  .execution-trace__summary {
+    font-size: 12px;
+    color: var(--gray-600);
+    line-height: 1.5;
+  }
+
+  .worker-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--primary-100);
+    color: var(--primary-700);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .worker-chip.is-recovery {
+    background: var(--gray-100);
+    color: var(--gray-700);
+  }
+
+  .execution-trace__timeline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .trace-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--gray-150);
+    background: var(--gray-0);
+    color: var(--gray-700);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .trace-pill.is-worker {
+    border-color: var(--primary-200);
+    background: var(--primary-50);
+    color: var(--primary-700);
+  }
+
+  .trace-pill.is-route {
+    border-color: var(--main-200);
+    background: var(--main-50);
+    color: var(--main-700);
+  }
+
+  .trace-pill.is-success {
+    border-color: var(--color-success-200);
+    background: var(--color-success-50);
+    color: var(--color-success-700);
+  }
+
+  .trace-pill.is-warning {
+    border-color: var(--color-warning-200);
+    background: var(--color-warning-50);
+    color: var(--color-warning-700);
+  }
+
+  .trace-pill.is-tool {
+    border-color: var(--gray-200);
+    background: var(--gray-50);
+    color: var(--gray-700);
   }
 }
 

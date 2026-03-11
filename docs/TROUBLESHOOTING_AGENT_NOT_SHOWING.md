@@ -1,227 +1,172 @@
-# 数据库图表助手未显示问题 - 排查和解决方案
+# 智能体未显示问题排查
 
-## 问题描述
-在智能体选择页面（`localhost:5173/agent`）中，只显示"智能聊天助手"和"深度分析智能体"，但没有显示"数据库图表助手"（SqlReporterAgent）。
+截至 2026 年 3 月 11 日，当前项目的 Agent 暴露策略已经变化：
 
-## 原因分析
+- 自动注册的运行时入口只有 `SqlReporterAgent` 和 `AgentPlatformAgent`
+- 产品默认可见的内置 Agent 只有 `SqlReporterAgent`
+- 旧的 `ChatbotAgent / DeepAgent / DocOrganizerAgent / ArchitectAgent / DynamicAgent` 已经移除，不再显示属于正常行为
 
-### 1. 智能体注册机制
-系统使用 `AgentManager` 自动发现并注册智能体：
-- 扫描 `src/agents/` 目录下的所有子文件夹
-- 导入继承自 `BaseAgent` 的类
-- 自动注册并初始化实例
+如果你看到的结果和旧文档不一样，先以当前规则为准。
 
-### 2. SqlReporterAgent 配置正确
-- ✅ 文件位置：`src/agents/reporter/graph.py`
-- ✅ 类定义：继承自 `BaseAgent`
-- ✅ 元数据：
-  ```python
-  class SqlReporterAgent(BaseAgent):
-      name = "数据库报表助手"
-      description = "一个支持多数据库类型的智能数据报表助手..."
-      context_schema = ReporterContext
-      capabilities = ["file_upload", "files"]
-  ```
-- ✅ 导出：在 `__init__.py` 中正确导出
+## 先判断是不是“预期行为”
 
-### 3. 可能原因
-- **最可能**：后端服务未重启，旧代码仍在运行
-- 智能体初始化时出错（但未中断其他智能体加载）
-- 依赖缺失（如 langgraph-supervisor）
+### 情况 1：智能体广场只看到“数据库报表助手”
 
-## 解决方案
+这是预期行为。当前产品内置默认只保留：
 
-### 方案 1：重启后端服务（推荐）
+- `数据库报表助手`
 
-```bash
-# 如果使用 make 命令启动的
-# 1. 停止当前后端服务（Ctrl+C）
-# 2. 重新启动
-make local-api
+`AgentPlatformAgent` 是内部运行时入口，不作为产品内置卡片直接展示。
 
-# 或者如果使用手动命令
-# 1. 停止当前服务（Ctrl+C）
-# 2. 重新启动
-uv run uvicorn server.main:app --host 0.0.0.0 --port 5050 --reload
-```
+### 情况 2：我创建的自定义 Agent 没看到
 
-### 方案 2：验证智能体注册
+这时要查的是自定义配置，而不是旧 built-in Agent。
 
-运行检查脚本：
+请确认：
 
-```bash
-uv run python scripts/check_agents.py
-```
+1. 是否已经通过 `/api/agent-design/deploy` 成功部署
+2. 是否存在 `AgentPlatformAgent` 对应的配置记录
+3. 当前部门下是否能查到该配置
 
-**预期输出**：
-```
-============================================================
-智能体注册状态检查
-============================================================
+相关接口：
 
-已注册的智能体类 (3 个):
-  - ChatbotAgent: <class 'src.agents.chatbot.graph.ChatbotAgent'>
-  - DeepAgent: <class 'src.agents.deep_agent.graph.DeepAgent'>
-  - SqlReporterAgent: <class 'src.agents.reporter.graph.SqlReporterAgent'>
+- `GET /api/chat/agent`
+- `GET /api/chat/agent/AgentPlatformAgent/configs`
 
-已实例化的智能体 (3 个):
-  - ChatbotAgent
-    name: 智能聊天助手
-    description: 基础的对话机器人，可以回答问题...
-    capabilities: ['file_upload']
+### 情况 3：期望看到旧的聊天助手、深度分析助手
 
-  - DeepAgent
-    name: 深度分析智能体
-    description: 具备规划、深度分析和子智能体协作能力...
-    capabilities: ['file_upload', 'todo', 'files']
+这不是故障。它们已经不再作为公开 Agent 注册，能力已迁移为：
 
-  - SqlReporterAgent
-    name: 数据库报表助手
-    description: 一个支持多数据库类型（MySQL / PostgreSQL / Oracle / MSSQL / SQLite）...
-    capabilities: ['file_upload', 'files']
+- templates
+- examples
+- worker/runtime 组件
 
-============================================================
-SqlReporterAgent 检查:
-============================================================
-✅ SqlReporterAgent 已在类注册表中
-✅ SqlReporterAgent 已实例化
-   名称: 数据库报表助手
-   描述: 一个支持多数据库类型（MySQL / PostgreSQL / Oracle / MSSQL / SQLite）的智能数据报表助手。能够分析数据库结构、生成 SQL 查询、执行查询并以图表形式展示分析结果。
-```
+## 当前注册机制
 
-### 方案 3：检查依赖
+系统会在 `src/agents/__init__.py` 中自动发现允许暴露的模块。当前只会注册：
 
-确保安装了所有必需的依赖：
+- `src/agents/reporter`
+- `src/agents/agent_platform`
+
+你可以用下面的命令核对当前注册状态：
 
 ```bash
-# 检查 langgraph-supervisor
-uv pip list | grep langgraph
-
-# 如果未安装，添加依赖
-uv add langgraph-supervisor
+docker compose exec api uv run python scripts/check_agents.py
 ```
 
-### 方案 4：检查后端日志
+预期输出应至少包含：
 
-启动后端时查看日志，确认智能体是否成功加载：
+- `SqlReporterAgent`
+- `AgentPlatformAgent`
+
+并明确说明：
+
+- `SqlReporterAgent` 是产品内置 Agent
+- `AgentPlatformAgent` 是内部运行时入口
+
+## 推荐排查步骤
+
+### 1. 检查容器是否正常运行
 
 ```bash
-# 查看启动日志，应该看到类似信息：
-# INFO: 自动发现智能体: ChatbotAgent 来自 chatbot
-# INFO: 自动发现智能体: DeepAgent 来自 deep_agent
-# INFO: 自动发现智能体: SqlReporterAgent 来自 reporter
+docker compose ps
 ```
 
-如果看到警告或错误：
+重点看：
+
+- `api`
+- `web`
+
+### 2. 查看后端热重载日志
+
 ```bash
-# WARNING: 无法从 reporter 加载智能体: <error message>
+docker compose logs api --tail 100
 ```
 
-这说明加载过程中出错，需要检查错误信息并修复。
+启动或热重载后，应该能看到类似日志：
 
-### 方案 5：清除缓存并重启
-
-```bash
-# 1. 清除 Python 缓存
-find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
-find . -type f -name "*.pyc" -delete
-
-# 2. 重启后端
-make local-api
+```text
+自动发现智能体: AgentPlatformAgent 来自 agent_platform
+自动发现智能体: SqlReporterAgent 来自 reporter
 ```
 
-## 验证修复
+如果这里缺项，说明模块导入或初始化失败。
 
-### 1. 检查 API 响应
+### 3. 检查公开 Agent 列表
 
 ```bash
-# 获取智能体列表（需要先登录获取 token）
 curl -H "Authorization: Bearer <your_token>" \
   http://localhost:5050/api/chat/agent
 ```
 
-**预期响应**应包含 3 个智能体：
-```json
-[
-  {
-    "id": "ChatbotAgent",
-    "name": "智能聊天助手",
-    "description": "基础的对话机器人...",
-    ...
-  },
-  {
-    "id": "DeepAgent",
-    "name": "深度分析智能体",
-    "description": "具备规划、深度分析...",
-    ...
-  },
-  {
-    "id": "SqlReporterAgent",
-    "name": "数据库报表助手",
-    "description": "一个支持多数据库类型...",
-    ...
-  }
-]
-```
+当前返回里通常会包含两个运行时入口：
 
-### 2. 检查前端
+- `SqlReporterAgent`
+- `AgentPlatformAgent`
 
-1. 刷新浏览器（清除缓存：Ctrl+Shift+R 或 Cmd+Shift+R）
-2. 打开智能体选择页面：`http://localhost:5173/agent`
-3. 应该看到 3 个智能体卡片：
-   - 智能聊天助手
-   - 深度分析智能体
-   - **数据库报表助手** ← 应该显示
+但只有 `SqlReporterAgent` 会带 `product_visible=true`。
 
-## 常见问题
+### 4. 检查自定义 Agent 配置
 
-### Q1: 重启后还是看不到？
-**A**: 检查前端是否有缓存，强制刷新浏览器（Ctrl+Shift+R）
-
-### Q2: 其他智能体也看不到了？
-**A**: 说明整个 AgentManager 初始化失败，检查：
-- 基础依赖是否安装（`uv sync`）
-- Python 路径是否正确
-- 是否有语法错误
-
-### Q3: 日志显示加载失败？
-**A**: 查看具体错误信息，可能是：
-- 缺少依赖包（安装 `uv add <package>`）
-- 配置文件错误（检查 `reporter/context.py`）
-- 导入循环（检查模块依赖）
-
-### Q4: API 返回 3 个智能体，但前端只显示 2 个？
-**A**: 前端问题，检查：
-- 浏览器控制台是否有 JavaScript 错误
-- 前端是否有过滤逻辑
-- 刷新前端缓存
-
-## 快速修复步骤
+如果问题是“自定义 Agent 没显示”，继续检查：
 
 ```bash
-# 1. 停止所有服务
-# 按 Ctrl+C 停止后端和前端
+curl -H "Authorization: Bearer <your_token>" \
+  http://localhost:5050/api/chat/agent/AgentPlatformAgent/configs
+```
 
-# 2. 清除缓存
-find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
+如果这里为空，说明不是显示问题，而是还没有部署成功。
 
-# 3. 重启后端
-make local-api
+### 5. 检查一句话创建链路
 
-# 4. 在另一个终端，验证智能体注册
-uv run python scripts/check_agents.py
+确认设计期链路正常：
 
-# 5. 如果验证通过，刷新前端浏览器（Ctrl+Shift+R）
+- `POST /api/agent-design/draft`
+- `POST /api/agent-design/validate`
+- `POST /api/agent-design/compile`
+- `POST /api/agent-design/deploy`
+
+如果 `deploy` 没成功，自定义 Agent 不会出现在配置列表里。
+
+## 常见原因
+
+### 原因 1：把“旧 built-in 不显示”误判成故障
+
+这是最常见情况。旧 built-in 已移除，不需要修复。
+
+### 原因 2：后端没热重载成功
+
+表现：
+
+- 新代码已经改了
+- `/api/chat/agent` 结果还是旧的
+
+先看：
+
+```bash
+docker compose logs api --tail 100
+```
+
+### 原因 3：自定义 Agent 只 draft/compile 了，没有 deploy
+
+这种情况下 `AgentPlatformAgent` 运行时入口存在，但配置列表为空。
+
+### 原因 4：当前用户没有部门
+
+设计期部署和配置列表都依赖部门；用户未绑定部门时，自定义 Agent 无法正常落库。
+
+## 快速检查命令
+
+```bash
+docker compose exec api uv run python scripts/check_agents.py
+docker compose logs api --tail 100
 ```
 
 ## 总结
 
-**最可能的原因**：后端服务未重启，仍在运行旧代码。
+如果你只看到“数据库报表助手”，通常是正常行为，不是故障。
 
-**解决方案**：
-1. 重启后端服务
-2. 清除浏览器缓存
-3. 验证智能体是否成功注册
+真正需要排查的是两类问题：
 
-如果问题仍然存在，运行 `scripts/check_agents.py` 获取详细诊断信息。
-
+1. `SqlReporterAgent` 本身没有被自动发现
+2. 自定义 Agent 的 `AgentPlatformAgent` 配置没有成功部署

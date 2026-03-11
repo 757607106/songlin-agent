@@ -533,7 +533,11 @@ class UploadGraphService:
         entity_to_score = {}
         for token in tokens:
             # 使用向量索引进行查询
-            results_sim = self._query_with_vector_sim(token, kgdb_name, threshold)
+            try:
+                results_sim = self._query_with_vector_sim(token, kgdb_name, threshold)
+            except Exception as exc:
+                logger.info(f"跳过向量检索，降级为模糊检索: {exc}")
+                results_sim = []
             for r in results_sim:
                 name = r[0]  # 与下方保持统一的 [0] 取 name 的方式
                 score = 0.0

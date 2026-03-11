@@ -1,0 +1,6 @@
+name = "Agent Platform Runtime"
+description = "新平台自定义 Agent 的统一运行时入口。"
+examples = [
+  "帮我创建一个销售线索分配 Agent",
+  "设计一个知识库问答 Agent",
+]

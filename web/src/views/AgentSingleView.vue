@@ -50,6 +50,15 @@
         </div>
       </template>
       <template #header-right>
+        <div
+          v-if="canEditCurrentCustomAgent"
+          type="button"
+          class="agent-nav-btn"
+          @click="goEditCurrentCustomAgent"
+        >
+          <Pencil size="18" class="nav-btn-icon" />
+          <span class="text">编辑蓝图</span>
+        </div>
         <div type="button" class="agent-nav-btn" @click="handleShareChat">
           <Share2 size="18" class="nav-btn-icon" />
           <span class="text">分享</span>
@@ -64,7 +73,7 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Share2, ChevronDown } from 'lucide-vue-next'
+import { Share2, ChevronDown, Pencil } from 'lucide-vue-next'
 import { StarFilled, StarOutlined } from '@ant-design/icons-vue'
 import AgentChatComponent from '@/components/AgentChatComponent.vue'
 import UserInfoComponent from '@/components/UserInfoComponent.vue'
@@ -72,9 +81,10 @@ import { ChatExporter } from '@/utils/chatExporter'
 import { handleChatError } from '@/utils/errorHandler'
 import { useAgentStore } from '@/stores/agent'
 import { agentApi } from '@/apis/agent_api'
+import { AGENT_PLATFORM_AGENT_ID, isAgentPlatformConfig } from '@/utils/agentPlatformConfig'
 import { storeToRefs } from 'pinia'
 
-const DYNAMIC_AGENT_ID = 'DynamicAgent'
+const CUSTOM_RUNTIME_AGENT_IDS = [AGENT_PLATFORM_AGENT_ID]
 
 const route = useRoute()
 const router = useRouter()
@@ -96,10 +106,14 @@ const currentConfigId = computed(() => {
   const parsed = Number(raw)
   return Number.isNaN(parsed) ? null : parsed
 })
+const isCustomRuntimeAgent = computed(() => CUSTOM_RUNTIME_AGENT_IDS.includes(agentId.value))
+const canEditCurrentCustomAgent = computed(
+  () => isCustomRuntimeAgent.value && Boolean(currentConfigId.value)
+)
 
 const selectableAgents = computed(() => {
   const builtinAgents = (agents.value || [])
-    .filter((agent) => agent.id !== DYNAMIC_AGENT_ID)
+    .filter((agent) => agent.product_visible !== false)
     .map((agent) => ({
       ...agent,
       _isCustom: false,
@@ -117,24 +131,34 @@ const selectableAgents = computed(() => {
 
 const isAgentOptionSelected = (agent) => {
   if (agent._isCustom) {
-    return agentId.value === DYNAMIC_AGENT_ID && currentConfigId.value === agent.id
+    return agentId.value === agent._runtimeAgentId && currentConfigId.value === agent.id
   }
   return agent.id === agentId.value
 }
 
 const fetchCustomAgentOptions = async () => {
   try {
-    const configsRes = await agentApi.getAgentConfigs(DYNAMIC_AGENT_ID)
-    const configs = configsRes.configs || []
-    const detailedConfigs = await Promise.all(
-      configs.map((config) =>
-        agentApi
-          .getAgentConfigProfile(DYNAMIC_AGENT_ID, config.id)
-          .then((res) => res.config || res)
-          .catch(() => config)
-      )
+    const groupedConfigs = await Promise.all(
+      CUSTOM_RUNTIME_AGENT_IDS.map(async (runtimeAgentId) => {
+        const configsRes = await agentApi.getAgentConfigs(runtimeAgentId)
+        const configs = configsRes.configs || []
+        return Promise.all(
+          configs.map((config) =>
+            agentApi
+              .getAgentConfigProfile(runtimeAgentId, config.id)
+              .then((res) => ({
+                ...(res.config || res),
+                _runtimeAgentId: runtimeAgentId
+              }))
+              .catch(() => ({
+                ...config,
+                _runtimeAgentId: runtimeAgentId
+              }))
+          )
+        )
+      })
     )
-    customAgentOptions.value = detailedConfigs
+    customAgentOptions.value = groupedConfigs.flat().filter((item) => isAgentPlatformConfig(item?.config_json))
   } catch (error) {
     console.error('加载自定义智能体列表失败:', error)
     customAgentOptions.value = []
@@ -142,9 +166,9 @@ const fetchCustomAgentOptions = async () => {
 }
 
 const syncConfigByRoute = async () => {
-  if (agentId.value !== DYNAMIC_AGENT_ID || !currentConfigId.value) return
+  if (!isCustomRuntimeAgent.value || !currentConfigId.value) return
   try {
-    await agentStore.selectAgent(DYNAMIC_AGENT_ID)
+    await agentStore.selectAgent(agentId.value)
     await agentStore.selectAgentConfig(currentConfigId.value)
   } catch (error) {
     console.error('加载指定配置失败:', error)
@@ -153,8 +177,10 @@ const syncConfigByRoute = async () => {
 
 // 当前智能体名称
 const currentAgentName = computed(() => {
-  if (agentId.value === DYNAMIC_AGENT_ID && currentConfigId.value) {
-    const customAgent = customAgentOptions.value.find((item) => item.id === currentConfigId.value)
+  if (isCustomRuntimeAgent.value && currentConfigId.value) {
+    const customAgent = customAgentOptions.value.find(
+      (item) => item._runtimeAgentId === agentId.value && item.id === currentConfigId.value
+    )
     if (customAgent?.name) return customAgent.name
     return '自定义智能体'
   }
@@ -173,12 +199,12 @@ const openAgentModal = () => {
 // 从弹窗中选择智能体 - 切换路由
 const selectAgentFromModal = (agent) => {
   if (agent._isCustom) {
-    if (agentId.value === DYNAMIC_AGENT_ID && currentConfigId.value === agent.id) {
+    if (agentId.value === agent._runtimeAgentId && currentConfigId.value === agent.id) {
       agentModalOpen.value = false
       return
     }
     router.push({
-      path: `/agent/${DYNAMIC_AGENT_ID}`,
+      path: `/agent/${agent._runtimeAgentId}`,
       query: { config_id: agent.id }
     })
     agentModalOpen.value = false
@@ -192,6 +218,14 @@ const selectAgentFromModal = (agent) => {
 
   router.push(`/agent/${agent.id}`)
   agentModalOpen.value = false
+}
+
+const goEditCurrentCustomAgent = () => {
+  if (!canEditCurrentCustomAgent.value) return
+  router.push({
+    path: `/agent-square/custom/${currentConfigId.value}`,
+    query: { runtime_agent_id: AGENT_PLATFORM_AGENT_ID }
+  })
 }
 
 // 设置默认智能体

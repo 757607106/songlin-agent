@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""测试脚本：验证所有智能体是否正确注册"""
+"""检查当前运行时入口是否按新版 Agent 平台正确注册。"""
 
 import sys
 from pathlib import Path
@@ -30,32 +30,42 @@ def main():
         print(f"    capabilities: {agent_instance.capabilities}")
         print()
 
-    # 检查 SqlReporterAgent 是否存在
+    # 检查当前新版运行时入口
     print("=" * 60)
-    print("SqlReporterAgent 检查:")
+    print("新版运行时入口检查:")
     print("=" * 60)
 
-    if "SqlReporterAgent" in agent_manager._classes:
-        print("✅ SqlReporterAgent 已在类注册表中")
-    else:
-        print("❌ SqlReporterAgent 未在类注册表中")
-        print("   可能原因：")
-        print("   1. 模块导入失败")
-        print("   2. 类名不匹配")
-        print("   3. 未继承 BaseAgent")
+    required_agents = {
+        "SqlReporterAgent": "产品内置 Agent",
+        "AgentPlatformAgent": "内部运行时入口",
+    }
 
-    if "SqlReporterAgent" in agent_manager._instances:
-        print("✅ SqlReporterAgent 已实例化")
-        agent = agent_manager._instances["SqlReporterAgent"]
-        print(f"   名称: {agent.name}")
-        print(f"   描述: {agent.description}")
-    else:
-        print("❌ SqlReporterAgent 未实例化")
+    missing = []
+    for agent_id, role in required_agents.items():
+        if agent_id not in agent_manager._classes:
+            missing.append(agent_id)
+            print(f"❌ {agent_id} 未在类注册表中")
+            continue
+
+        print(f"✅ {agent_id} 已在类注册表中")
+        print(f"   角色: {role}")
+
+        if agent_id in agent_manager._instances:
+            agent = agent_manager._instances[agent_id]
+            print(f"✅ {agent_id} 已实例化")
+            print(f"   名称: {agent.name}")
+            print(f"   描述: {agent.description}")
+        else:
+            missing.append(agent_id)
+            print(f"❌ {agent_id} 未实例化")
+
+        print()
 
     print("\n" + "=" * 60)
+    print("说明：旧的 ChatbotAgent / DeepAgent / DynamicAgent 等不再显示属于正常行为。")
 
     # 返回状态码
-    return 0 if "SqlReporterAgent" in agent_manager._instances else 1
+    return 0 if not missing else 1
 
 
 if __name__ == "__main__":

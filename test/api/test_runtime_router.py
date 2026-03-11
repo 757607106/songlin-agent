@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 os.environ.setdefault("YUXI_SKIP_APP_INIT", "1")
 
 from src.services.runtime_service import runtime_service
+from src.agent_platform.constants import AGENT_PLATFORM_AGENT_ID
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -20,7 +21,7 @@ async def test_runtime_create_requires_login(test_client):
     response = await test_client.post(
         "/api/runtime/runs",
         json={
-            "agent_id": "DynamicAgent",
+            "agent_id": AGENT_PLATFORM_AGENT_ID,
             "thread_id": "thread-auth-check",
             "mode": "hybrid",
             "input": {"query": "hello"},
@@ -36,7 +37,7 @@ async def test_runtime_run_lifecycle_minimal(test_client, admin_headers):
     create_response = await test_client.post(
         "/api/runtime/runs",
         json={
-            "agent_id": "DynamicAgent",
+            "agent_id": AGENT_PLATFORM_AGENT_ID,
             "thread_id": thread_id,
             "mode": "hybrid",
             "input": {"query": "build runtime"},
@@ -77,7 +78,7 @@ async def test_runtime_idempotency_replay(test_client, admin_headers):
     thread_id = f"thread-{uuid.uuid4().hex[:10]}"
     idem_key = f"idem-{uuid.uuid4().hex}"
     body = {
-        "agent_id": "DynamicAgent",
+        "agent_id": AGENT_PLATFORM_AGENT_ID,
         "thread_id": thread_id,
         "mode": "hybrid",
         "input": {"query": "same request"},
@@ -107,7 +108,7 @@ async def test_runtime_events_support_server_filters(test_client, admin_headers)
     create_response = await test_client.post(
         "/api/runtime/runs",
         json={
-            "agent_id": "DynamicAgent",
+            "agent_id": AGENT_PLATFORM_AGENT_ID,
             "thread_id": thread_id,
             "mode": "hybrid",
             "input": {"query": "filter events"},
@@ -176,7 +177,7 @@ async def test_runtime_events_seq_monotonic_under_parallel_appends(test_client, 
     create_response = await test_client.post(
         "/api/runtime/runs",
         json={
-            "agent_id": "DynamicAgent",
+            "agent_id": AGENT_PLATFORM_AGENT_ID,
             "thread_id": thread_id,
             "mode": "hybrid",
             "input": {"query": "parallel events"},
@@ -212,7 +213,7 @@ async def test_runtime_cancel_sets_cancel_requested_flag(test_client, admin_head
     create_response = await test_client.post(
         "/api/runtime/runs",
         json={
-            "agent_id": "DynamicAgent",
+            "agent_id": AGENT_PLATFORM_AGENT_ID,
             "thread_id": thread_id,
             "mode": "hybrid",
             "input": {"query": "cancel me"},
@@ -254,7 +255,7 @@ async def test_runtime_run_mode_can_be_aligned_after_creation(test_client, admin
     create_response = await test_client.post(
         "/api/runtime/runs",
         json={
-            "agent_id": "DynamicAgent",
+            "agent_id": AGENT_PLATFORM_AGENT_ID,
             "thread_id": thread_id,
             "mode": "hybrid",
             "input": {"query": "mode alignment"},
@@ -280,7 +281,7 @@ async def test_runtime_terminal_transition_emits_single_terminal_event(test_clie
     create_response = await test_client.post(
         "/api/runtime/runs",
         json={
-            "agent_id": "DynamicAgent",
+            "agent_id": AGENT_PLATFORM_AGENT_ID,
             "thread_id": thread_id,
             "mode": "hybrid",
             "input": {"query": "terminal event"},

@@ -17,9 +17,23 @@
           <p class="agent-description">{{ selectedAgent.description }}</p>
         </div>
 
+        <a-alert
+          v-if="isPlatformRuntimeSelected"
+          type="info"
+          show-icon
+          class="config-alert"
+          message="自定义 Agent 已改为 blueprint/spec 架构"
+          description="聊天页不再支持直接编辑运行时 context。请前往智能体详情页编辑 blueprint，再重新编译部署。"
+        />
+        <div v-if="isPlatformRuntimeSelected" class="platform-edit-hint">
+          <a-button type="primary" size="small" @click="goEditPlatformAgent">
+            前往详情页编辑蓝图
+          </a-button>
+        </div>
+
         <!-- <a-divider /> -->
 
-        <div v-if="selectedAgentId && configurableItems" class="config-form-content">
+        <div v-if="selectedAgentId && configurableItems && !isPlatformRuntimeSelected" class="config-form-content">
           <!-- 配置表单 -->
           <a-form :model="agentConfig" layout="vertical" class="config-form">
             <a-alert
@@ -300,7 +314,7 @@
     </div>
 
     <!-- 固定在底部的操作按钮 -->
-    <div class="sidebar-footer" v-if="!isEmptyConfig && userStore.isAdmin">
+    <div class="sidebar-footer" v-if="!isEmptyConfig && userStore.isAdmin && !isPlatformRuntimeSelected">
       <div class="form-actions">
         <a-button
           type="primary"
@@ -380,6 +394,7 @@
 
 <script setup>
 import { ref, computed, nextTick, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { X, Check, Plus, Search, Sparkles } from 'lucide-vue-next'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
@@ -390,6 +405,7 @@ import { useUserStore } from '@/stores/user'
 import { useDatabaseStore } from '@/stores/database'
 import { getConnections, listReporterSkills } from '@/apis/text2sql_api'
 import { storeToRefs } from 'pinia'
+import { AGENT_PLATFORM_AGENT_ID } from '@/utils/agentPlatformConfig'
 
 // Props
 const props = defineProps({
@@ -410,6 +426,7 @@ const emit = defineEmits(['close'])
 const agentStore = useAgentStore()
 const userStore = useUserStore()
 const databaseStore = useDatabaseStore()
+const router = useRouter()
 
 const datasourceConnections = ref([])
 const reporterSkills = ref([])
@@ -432,6 +449,7 @@ const {
   availableTools,
   selectedAgent,
   selectedAgentId,
+  selectedAgentConfigId,
   agentConfig,
   configurableItems
 } = storeToRefs(agentStore)
@@ -450,6 +468,15 @@ const activeTab = ref('basic')
 const isEmptyConfig = computed(() => {
   return !selectedAgentId.value || Object.keys(configurableItems.value).length === 0
 })
+const isPlatformRuntimeSelected = computed(() => selectedAgentId.value === AGENT_PLATFORM_AGENT_ID)
+
+const goEditPlatformAgent = () => {
+  if (!selectedAgentConfigId.value) return
+  router.push({
+    path: `/agent-square/custom/${selectedAgentConfigId.value}`,
+    query: { runtime_agent_id: AGENT_PLATFORM_AGENT_ID }
+  })
+}
 
 const isSavingConfig = ref(false)
 
@@ -933,6 +960,10 @@ const saveConfig = async () => {
     padding-bottom: @padding-bottom;
 
     .agent-info {
+      .platform-edit-hint {
+        margin: 0 0 12px 0;
+      }
+
       .agent-basic-info {
         .agent-description {
           margin: 0 0 12px 0;

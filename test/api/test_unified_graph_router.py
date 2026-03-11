@@ -33,7 +33,7 @@ async def test_get_graphs_list(test_client, admin_headers):
     # Check for Neo4j default graph
     neo4j_graph = next((g for g in graphs if g["id"] == "neo4j"), None)
     assert neo4j_graph is not None
-    assert neo4j_graph["type"] == "neo4j"
+    assert neo4j_graph["type"] == "upload"
 
     # Note: LightRAG graphs might be empty if none created, but we check structure
 

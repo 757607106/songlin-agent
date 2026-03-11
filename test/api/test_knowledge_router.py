@@ -4,9 +4,12 @@ Integration tests for knowledge router and mindmap router endpoints.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import pytest
+
+from src import knowledge_base
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
@@ -17,6 +20,41 @@ def _assert_forbidden_response(response):
     payload = response.json()
     assert "detail" in payload
     assert isinstance(payload["detail"], str)
+
+
+async def _upload_and_ingest_markdown_file(test_client, admin_headers, db_id: str, filename: str) -> None:
+    upload_response = await test_client.post(
+        f"/api/knowledge/files/upload?db_id={db_id}",
+        files={"file": (filename, b"# FAQ\n\n## Q1\nA1\n", "text/markdown")},
+        headers=admin_headers,
+    )
+    assert upload_response.status_code == 200, upload_response.text
+    upload_payload = upload_response.json()
+    file_path = upload_payload["file_path"]
+    content_hash = upload_payload["content_hash"]
+
+    enqueue_response = await test_client.post(
+        f"/api/knowledge/databases/{db_id}/documents",
+        json={
+            "items": [file_path],
+            "params": {"content_type": "file", "content_hashes": {file_path: content_hash}},
+        },
+        headers=admin_headers,
+    )
+    assert enqueue_response.status_code == 200, enqueue_response.text
+    task_id = enqueue_response.json()["task_id"]
+
+    for _ in range(40):
+        detail_response = await test_client.get(f"/api/tasks/{task_id}", headers=admin_headers)
+        assert detail_response.status_code == 200, detail_response.text
+        task_status = detail_response.json().get("task", {}).get("status")
+        if task_status in {"success", "failed", "cancelled"}:
+            break
+        await asyncio.sleep(0.5)
+    else:
+        pytest.fail("Knowledge ingestion task did not reach a terminal status within timeout window")
+
+    assert task_status == "success"
 
 
 async def test_admin_can_manage_knowledge_databases(test_client, admin_headers, knowledge_database):
@@ -164,6 +202,25 @@ async def test_get_database_files(test_client, admin_headers, knowledge_database
     assert payload["db_name"] == knowledge_database["name"]
 
 
+async def test_get_database_files_after_ingest_rehydrates_from_db(test_client, admin_headers, knowledge_database):
+    """文件列表应以数据库记录为准，即使运行时内存元数据被清空。"""
+    db_id = knowledge_database["db_id"]
+
+    await _upload_and_ingest_markdown_file(test_client, admin_headers, db_id, "mindmap-regression.md")
+
+    kb_instance = await knowledge_base.aget_kb(db_id)
+    stale_file_ids = [file_id for file_id, meta in kb_instance.files_meta.items() if meta.get("database_id") == db_id]
+    for file_id in stale_file_ids:
+        kb_instance.files_meta.pop(file_id, None)
+
+    response = await test_client.get(f"/api/mindmap/databases/{db_id}/files", headers=admin_headers)
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["files"][0]["filename"] == "mindmap-regression.md"
+    assert payload["files"][0]["status"] == "parsed"
+
+
 async def test_get_database_files_not_found(test_client, admin_headers):
     """测试获取不存在的知识库文件列表"""
     response = await test_client.get("/api/mindmap/databases/nonexistent_db_id/files", headers=admin_headers)
@@ -193,26 +250,51 @@ async def test_get_database_mindmap_not_exists(test_client, admin_headers, knowl
     assert payload["mindmap"] is None  # 尚未生成思维导图
 
 
-async def test_generate_and_get_mindmap(test_client, admin_headers, knowledge_database):
-    """测试生成并获取思维导图
+async def test_generate_and_get_mindmap(test_client, admin_headers, knowledge_database, monkeypatch):
+    """测试上传文件后生成并读取思维导图。"""
+    from server.routers import mindmap_router
 
-    注意：此测试需要知识库中有文件才能完整测试核心功能。
-    由于没有前置的文件上传 fixture，测试会先验证空文件场景（预期400），
-    然后使用 xfail 标记等待后续完善。
-    """
     db_id = knowledge_database["db_id"]
+    await _upload_and_ingest_markdown_file(test_client, admin_headers, db_id, "mindmap-generate.md")
 
-    # 空文件场景 - 预期返回400错误
+    class _FakeResponse:
+        content = """
+        {
+          "content": "测试知识库",
+          "children": [
+            {
+              "content": "📚 文档",
+              "children": [
+                {"content": "mindmap-generate.md", "children": []}
+              ]
+            }
+          ]
+        }
+        """
+
+    class _FakeModel:
+        async def call(self, messages, stream=False):
+            return _FakeResponse()
+
+    monkeypatch.setattr(mindmap_router, "select_model", lambda: _FakeModel())
+
     generate_response = await test_client.post(
         "/api/mindmap/generate",
         json={"db_id": db_id, "file_ids": [], "user_prompt": ""},
         headers=admin_headers,
     )
-    assert generate_response.status_code == 400
-    assert "中没有文件" in generate_response.json()["detail"]
+    assert generate_response.status_code == 200, generate_response.text
+    generate_payload = generate_response.json()
+    assert generate_payload["message"] == "success"
+    assert generate_payload["file_count"] == 1
+    assert generate_payload["mindmap"]["content"]
+    assert generate_payload["mindmap"]["children"][0]["children"][0]["content"] == "mindmap-generate.md"
 
-    # 标记此测试需要文件上传支持才能完整执行
-    pytest.skip("需要先上传文件才能完整测试思维导图生成功能")
+    saved_response = await test_client.get(f"/api/mindmap/database/{db_id}", headers=admin_headers)
+    assert saved_response.status_code == 200, saved_response.text
+    saved_payload = saved_response.json()
+    assert saved_payload["db_id"] == db_id
+    assert saved_payload["mindmap"]["children"][0]["children"][0]["content"] == "mindmap-generate.md"
 
 
 # =============================================================================

@@ -103,6 +103,60 @@ class KnowledgeBaseManager:
         kb_instance = await self._get_kb_for_database(db_id)
         return await kb_instance.move_file(db_id, file_id, new_parent_id)
 
+    async def _sync_kb_instance_metadata(self, kb_instance: KnowledgeBase, kb_row) -> None:
+        """以 PostgreSQL 为准同步单个知识库的数据库/文件元数据。"""
+        from src.repositories.knowledge_file_repository import KnowledgeFileRepository
+
+        db_id = kb_row.db_id
+        kb_instance.databases_meta[db_id] = {
+            "name": kb_row.name,
+            "description": kb_row.description,
+            "kb_type": kb_row.kb_type,
+            "embed_info": kb_row.embed_info,
+            "llm_info": kb_row.llm_info,
+            "query_params": kb_row.query_params,
+            "metadata": kb_row.additional_params or {},
+            "created_at": utc_isoformat(kb_row.created_at) if kb_row.created_at else utc_isoformat(),
+        }
+
+        file_repo = KnowledgeFileRepository()
+        file_rows = await file_repo.list_by_db_id(db_id)
+        current_file_ids = {row.file_id for row in file_rows}
+
+        stale_file_ids = [
+            file_id
+            for file_id, meta in kb_instance.files_meta.items()
+            if meta.get("database_id") == db_id and file_id not in current_file_ids
+        ]
+        for file_id in stale_file_ids:
+            kb_instance.files_meta.pop(file_id, None)
+
+        for row in file_rows:
+            kb_instance.files_meta[row.file_id] = {
+                "file_id": row.file_id,
+                "database_id": row.db_id,
+                "parent_id": row.parent_id,
+                "filename": row.filename,
+                "file_type": row.file_type,
+                "path": row.path,
+                "markdown_file": row.markdown_file,
+                "status": row.status,
+                "content_hash": row.content_hash,
+                "size": row.file_size,
+                "content_type": row.content_type,
+                "processing_params": row.processing_params,
+                "is_folder": row.is_folder,
+                "error": row.error_message,
+                "created_by": row.created_by,
+                "updated_by": row.updated_by,
+                "created_at": utc_isoformat(row.created_at) if row.created_at else None,
+                "updated_at": utc_isoformat(row.updated_at) if row.updated_at else None,
+                "original_filename": row.original_filename,
+                "minio_url": row.minio_url,
+            }
+
+        kb_instance._metadata_loaded = True
+
     async def _get_kb_for_database(self, db_id: str) -> KnowledgeBase:
         """
         根据数据库ID获取对应的知识库实例
@@ -129,7 +183,9 @@ class KnowledgeBaseManager:
         if not KnowledgeBaseFactory.is_type_supported(kb_type):
             raise KBNotFoundError(f"Unsupported knowledge base type: {kb_type}")
 
-        return self._get_or_create_kb_instance(kb_type)
+        kb_instance = self._get_or_create_kb_instance(kb_type)
+        await self._sync_kb_instance_metadata(kb_instance, kb)
+        return kb_instance
 
     def _get_kb_for_database_sync(self, db_id: str) -> KnowledgeBase:
         """同步版本的 _get_kb_for_database，用于兼容同步调用"""
@@ -174,7 +230,7 @@ class KnowledgeBaseManager:
 
         all_databases = []
         for row in rows:
-            kb_instance = self._get_or_create_kb_instance(row.kb_type or "lightrag")
+            kb_instance = await self._get_kb_for_database(row.db_id)
             db_info = kb_instance.get_database_info(row.db_id)
             if db_info:
                 # 补充 share_config 和 additional_params

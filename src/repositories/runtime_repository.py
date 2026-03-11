@@ -9,19 +9,27 @@ from src.storage.postgres.manager import pg_manager
 from src.storage.postgres.models_business import AgentRun, IdempotencyRecord, RunEvent
 
 
+def _ensure_pg_manager_initialized() -> None:
+    if not pg_manager._initialized:
+        pg_manager.initialize()
+
+
 class RuntimeRepository:
     async def create_run(self, run_data: dict[str, Any]) -> AgentRun:
+        _ensure_pg_manager_initialized()
         async with pg_manager.get_async_session_context() as session:
             record = AgentRun(**run_data)
             session.add(record)
             return record
 
     async def get_run(self, run_id: str) -> AgentRun | None:
+        _ensure_pg_manager_initialized()
         async with pg_manager.get_async_session_context() as session:
             result = await session.execute(select(AgentRun).where(AgentRun.run_id == run_id))
             return result.scalar_one_or_none()
 
     async def update_run(self, run_id: str, **fields: Any) -> AgentRun | None:
+        _ensure_pg_manager_initialized()
         async with pg_manager.get_async_session_context() as session:
             result = await session.execute(select(AgentRun).where(AgentRun.run_id == run_id))
             record = result.scalar_one_or_none()
@@ -32,6 +40,7 @@ class RuntimeRepository:
             return record
 
     async def list_runs(self, *, status: str | None = None, limit: int = 100) -> list[AgentRun]:
+        _ensure_pg_manager_initialized()
         async with pg_manager.get_async_session_context() as session:
             stmt = select(AgentRun)
             if status:
@@ -41,6 +50,7 @@ class RuntimeRepository:
             return list(result.scalars().all())
 
     async def add_event(self, event_data: dict[str, Any]) -> RunEvent:
+        _ensure_pg_manager_initialized()
         run_id = str(event_data.get("run_id") or "").strip()
         if not run_id:
             raise ValueError("run_id is required for add_event")
@@ -79,6 +89,7 @@ class RuntimeRepository:
         actor_type: str | None = None,
         actor_name: str | None = None,
     ) -> list[RunEvent]:
+        _ensure_pg_manager_initialized()
         async with pg_manager.get_async_session_context() as session:
             stmt = select(RunEvent).where(RunEvent.run_id == run_id, RunEvent.seq > max(0, cursor))
             if event_type:
@@ -92,6 +103,7 @@ class RuntimeRepository:
             return list(result.scalars().all())
 
     async def get_idempotency_record(self, scope: str, idem_key: str) -> IdempotencyRecord | None:
+        _ensure_pg_manager_initialized()
         async with pg_manager.get_async_session_context() as session:
             result = await session.execute(
                 select(IdempotencyRecord).where(
@@ -102,6 +114,7 @@ class RuntimeRepository:
             return result.scalar_one_or_none()
 
     async def upsert_idempotency_record(self, scope: str, idem_key: str, data: dict[str, Any]) -> IdempotencyRecord:
+        _ensure_pg_manager_initialized()
         async with pg_manager.get_async_session_context() as session:
             result = await session.execute(
                 select(IdempotencyRecord).where(

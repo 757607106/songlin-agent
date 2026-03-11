@@ -5,8 +5,10 @@ Shared pytest fixtures for exercising FastAPI routers over the running API servi
 from __future__ import annotations
 
 import os
+import sys
 import uuid
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import anyio
 import httpx
@@ -14,13 +16,20 @@ import pytest
 import pytest_asyncio
 from dotenv import load_dotenv
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from server.utils.auth_utils import AuthUtils  # noqa: E402
+
 # Load project and test specific environment variables.
 load_dotenv(".env", override=False)
 load_dotenv("test/.env.test", override=False)
 
 API_BASE_URL = os.getenv("TEST_BASE_URL", "http://localhost:5050").rstrip("/")
-ADMIN_LOGIN = os.getenv("TEST_USERNAME")
-ADMIN_PASSWORD = os.getenv("TEST_PASSWORD")
+ADMIN_LOGIN = os.getenv("TEST_USERNAME") or os.getenv("YUXI_SUPER_ADMIN_NAME")
+ADMIN_PASSWORD = os.getenv("TEST_PASSWORD") or os.getenv("YUXI_SUPER_ADMIN_PASSWORD")
+ADMIN_TEST_USER_ID = os.getenv("TEST_USER_ID")
 
 # Set TEST_REQUIRE_CREDENTIALS=1 to enforce integration-test credentials at import time.
 REQUIRE_TEST_CREDENTIALS = os.getenv("TEST_REQUIRE_CREDENTIALS", "0") == "1"
@@ -45,6 +54,10 @@ async def admin_token() -> str:
     global _ADMIN_TOKEN_CACHE
 
     if _ADMIN_TOKEN_CACHE:
+        return _ADMIN_TOKEN_CACHE
+
+    if ADMIN_TEST_USER_ID:
+        _ADMIN_TOKEN_CACHE = AuthUtils.create_access_token({"sub": str(ADMIN_TEST_USER_ID)})
         return _ADMIN_TOKEN_CACHE
 
     if not ADMIN_LOGIN or not ADMIN_PASSWORD:

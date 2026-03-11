@@ -1,4 +1,4 @@
-"""数据库报表助手 — 基于 deep agents + 子agent 的多代理架构
+"""数据库报表助手 — 基于 Supervisor + Worker 的受控多阶段架构
 
 工作流：
   Schema → 样本检索 → SQL 生成 → SQL 验证 → SQL 执行 → 图表（可选）→ 错误恢复（按需）
@@ -11,26 +11,12 @@ import json
 import os
 from collections.abc import Awaitable, Callable
 
-from deepagents import create_deep_agent
-
 from src.agents.common import BaseAgent, get_enabled_mcp_tools, load_chat_model
-from src.agents.common.deepagent_runtime import create_state_store_backend
-from src.agents.common.middlewares import save_attachments_to_fs
+from src.agent_platform.reporter.runtime import build_reporter_supervisor_graph
 from src.services.skill_generation_service import skill_generation_service
 from src.utils import logger
 
-from .agents import (
-    build_analysis_system_prompt,
-    build_chart_system_prompt,
-    build_clarification_system_prompt,
-    build_error_recovery_system_prompt,
-    build_sample_retrieval_system_prompt,
-    build_schema_system_prompt,
-    build_sql_executor_system_prompt,
-    build_sql_generator_system_prompt,
-    build_sql_validator_system_prompt,
-)
-from .context import ROUTER_PROMPT, ReporterContext
+from .context import ReporterContext
 from .tools import get_reporter_tools
 
 
@@ -244,27 +230,6 @@ class SqlReporterAgent(BaseAgent):
             mcp_tools.extend(tools_from_server)
 
         model = load_chat_model(context.model)
-        schema_tool_names = ["analyze_user_query", "retrieve_database_schema"]
-        if not schema_simplified_mode:
-            schema_tool_names.extend(
-                [
-                    "validate_schema_completeness",
-                    "load_database_schema",
-                    "db_list_tables",
-                    "db_describe_table",
-                ]
-            )
-        schema_tools = _select_tools(tool_map, schema_tool_names)
-        sample_tools = _select_tools(tool_map, ["search_similar_queries", "analyze_sample_relevance"])
-        generator_tools = _select_tools(tool_map, ["generate_sql_query"])
-        validator_tools = _select_tools(tool_map, ["validate_sql"])
-        executor_tools = _select_tools(tool_map, ["db_execute_query", "save_query_history"])
-        analysis_tools: list = []
-        error_tool_names = ["analyze_error_pattern", "generate_recovery_strategy", "auto_fix_sql_error"]
-        if schema_simplified_mode:
-            error_tool_names.extend(["db_list_tables", "db_describe_table"])
-        error_tools = _select_tools(tool_map, error_tool_names)
-        chart_tools = mcp_tools
         skill_sources: list[str] = []
         if context.use_generated_skills and db_connection_id:
             # 技能目录只加载已发布技能；若配置了 skill_id 列表，仅加载指定技能。
@@ -274,100 +239,21 @@ class SqlReporterAgent(BaseAgent):
                 skill_ids=list(selected_skill_ids),
             )
 
-        subagents: list[dict[str, object]] = [
-            {
-                "name": "schema_agent",
-                "description": "分析用户问题并获取相关数据库 Schema 与值映射。",
-                "system_prompt": build_schema_system_prompt(schema_simplified_mode),
-                "tools": schema_tools,
-                "model": model,
-            },
-            {
-                "name": "clarification_agent",
-                "description": "在 Schema 已就绪后进行业务澄清，确认口径与范围。",
-                "system_prompt": build_clarification_system_prompt(),
-                "tools": [],
-                "model": model,
-            },
-            {
-                "name": "sql_generator_agent",
-                "description": "基于 Schema 与样本结果生成 SQL。",
-                "system_prompt": build_sql_generator_system_prompt(),
-                "tools": generator_tools,
-                "model": model,
-            },
-            {
-                "name": "sql_validator_agent",
-                "description": "校验 SQL 的语法、安全和可执行性。",
-                "system_prompt": build_sql_validator_system_prompt(),
-                "tools": validator_tools,
-                "model": model,
-            },
-            {
-                "name": "sql_executor_agent",
-                "description": "执行 SQL 并在成功后保存查询历史。",
-                "system_prompt": build_sql_executor_system_prompt(),
-                "tools": executor_tools,
-                "model": model,
-            },
-            {
-                "name": "analysis_agent",
-                "description": "对 SQL 执行结果进行业务分析与洞察总结。",
-                "system_prompt": build_analysis_system_prompt(context.system_prompt),
-                "tools": analysis_tools,
-                "model": model,
-            },
-            {
-                "name": "error_recovery_agent",
-                "description": "分析失败原因并输出恢复策略或自动修复建议。",
-                "system_prompt": build_error_recovery_system_prompt(),
-                "tools": error_tools,
-                "model": model,
-            },
-        ]
-        # 已启用 skills 时优先走 skills 语义指导路径，样本检索作为兜底能力停用。
-        if sample_tools and not skill_sources:
-            subagents.insert(
-                2,
-                {
-                    "name": "sample_retrieval_agent",
-                    "description": "检索并筛选高质量历史 SQL 样本，为 SQL 生成提供参考。",
-                    "system_prompt": build_sample_retrieval_system_prompt(),
-                    "tools": sample_tools,
-                    "model": model,
-                },
-            )
-        if chart_tools:
-            subagents.append(
-                {
-                    "name": "chart_generator_agent",
-                    "description": "在结果适合可视化时生成图表与简要解读。",
-                    "system_prompt": build_chart_system_prompt(),
-                    "tools": chart_tools,
-                    "model": model,
-                }
-            )
-
-        graph = create_deep_agent(
+        graph = await build_reporter_supervisor_graph(
             model=model,
-            tools=[],
-            # 主调度器使用固定路由提示词，避免被业务分析提示词污染。
-            system_prompt=ROUTER_PROMPT,
-            subagents=subagents,
-            skills=skill_sources or None,
-            backend=create_state_store_backend,
-            middleware=[save_attachments_to_fs],
+            context=context,
+            tool_map=tool_map,
+            mcp_tools=mcp_tools,
+            skill_sources=skill_sources,
             checkpointer=await self._get_checkpointer(),
             store=await self._get_store(),
-            interrupt_on=interrupt_on,
-            name="sql_reporter_deep_agent",
         )
         self._graph_cache[cache_key] = graph
 
         logger.info(
-            "SqlReporterAgent Deep Agent 构建成功 "
-            f"(connection_id={db_connection_id}, subagents={len(subagents)}, "
+            "SqlReporterAgent Supervisor graph 构建成功 "
+            f"(connection_id={db_connection_id}, workers=deterministic, "
             f"schema_mode={'simplified' if schema_simplified_mode else 'full'}, "
-            f"skills={len(skill_sources)})"
+            f"skills={len(skill_sources)}, interrupt_tools={len(interrupt_on or {})})"
         )
         return graph

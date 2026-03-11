@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.agents.dynamic_agent.supervisor import _compute_eligible_targets
+from src.agents.agent_platform.supervisor import _compute_eligible_targets
 
 
 def test_compute_eligible_targets_respects_dependency_communication_and_retry():

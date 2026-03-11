@@ -3,6 +3,10 @@ import { ref, computed } from 'vue'
 import { agentApi } from '@/apis/agent_api'
 import { handleChatError } from '@/utils/errorHandler'
 import { useUserStore } from '@/stores/user'
+import {
+  AGENT_PLATFORM_AGENT_ID,
+  normalizeAgentPlatformConfig
+} from '@/utils/agentPlatformConfig'
 
 export const useAgentStore = defineStore(
   'agent',
@@ -301,7 +305,13 @@ export const useAgentStore = defineStore(
       try {
         const response = await agentApi.getAgentConfigProfile(targetAgentId, targetConfigId)
         const configJson = response.config?.config_json || {}
-        const contextConfig = configJson.context || configJson
+        const contextConfig =
+          targetAgentId === AGENT_PLATFORM_AGENT_ID
+            ? normalizeAgentPlatformConfig(configJson)
+            : configJson.context || configJson
+        if (targetAgentId === AGENT_PLATFORM_AGENT_ID && !contextConfig) {
+          throw new Error('仅支持新的 agent_platform_v2 自定义智能体配置')
+        }
         const loadedConfig = { ...contextConfig }
 
         // 确保 configurableItems 已加载
@@ -349,6 +359,9 @@ export const useAgentStore = defineStore(
       const targetConfigId = selectedAgentConfigId.value
       if (!targetAgentId || !targetConfigId) return
       if (!userStore.isAdmin) return
+      if (targetAgentId === AGENT_PLATFORM_AGENT_ID) {
+        throw new Error('请在智能体详情页编辑自定义 Agent blueprint')
+      }
 
       try {
         await agentApi.updateAgentConfigProfile(targetAgentId, targetConfigId, {
@@ -368,6 +381,9 @@ export const useAgentStore = defineStore(
       if (!targetAgentId) return null
       if (!userStore.isAdmin) return null
       if (!name) throw new Error('配置名称不能为空')
+      if (targetAgentId === AGENT_PLATFORM_AGENT_ID) {
+        throw new Error('请使用一句话创建或详情页编辑来创建自定义 Agent')
+      }
 
       const baseContext = fromCurrent ? { ...agentConfig.value } : {}
 

@@ -1,5 +1,6 @@
 """PostgreSQL 数据库管理器 - 支持知识库和业务数据"""
 
+import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
@@ -35,6 +36,7 @@ class PostgresManager(metaclass=SingletonMeta):
         self.async_engine = None
         self.AsyncSession = None
         self._initialized = False
+        self._loop_id: int | None = None
 
     def initialize(self):
         """初始化数据库连接"""
@@ -74,6 +76,10 @@ class PostgresManager(metaclass=SingletonMeta):
             )
 
             self._initialized = True
+            try:
+                self._loop_id = id(asyncio.get_running_loop())
+            except RuntimeError:
+                self._loop_id = None
             logger.info(f"PostgreSQL manager initialized for knowledge base: {db_url.split('@')[0]}://***")
         except Exception as e:
             logger.error(f"Failed to initialize PostgreSQL manager: {e}")
@@ -182,13 +188,13 @@ class PostgresManager(metaclass=SingletonMeta):
 
     async def get_async_session(self) -> AsyncSession:
         """获取异步数据库会话"""
-        self._check_initialized()
+        await self._ensure_async_ready()
         return self.AsyncSession()
 
     @asynccontextmanager
     async def get_async_session_context(self):
         """获取异步数据库会话的上下文管理器"""
-        self._check_initialized()
+        await self._ensure_async_ready()
         session = self.AsyncSession()
         try:
             yield session
@@ -204,6 +210,29 @@ class PostgresManager(metaclass=SingletonMeta):
         """关闭引擎"""
         if self.async_engine:
             await self.async_engine.dispose()
+        self.async_engine = None
+        self.AsyncSession = None
+        self._initialized = False
+        self._loop_id = None
+
+    async def _ensure_async_ready(self):
+        if not self._initialized:
+            self.initialize()
+            self._check_initialized()
+            return
+
+        current_loop_id = id(asyncio.get_running_loop())
+        if self._loop_id is None:
+            self._loop_id = current_loop_id
+            return
+        if self._loop_id == current_loop_id:
+            return
+
+        logger.warning("PostgreSQL manager detected event loop switch; rebuilding async engine")
+        await self.close()
+        self.initialize()
+        self._check_initialized()
+        self._loop_id = current_loop_id
 
     async def async_check_first_run(self):
         """检查是否首次运行（异步版本）- 检查用户表是否有数据"""

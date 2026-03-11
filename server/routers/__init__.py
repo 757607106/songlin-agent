@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from server.routers.agent_design_router import agent_design
 from server.routers.auth_router import auth
 from server.routers.chat_router import chat
 from server.routers.dashboard_router import dashboard
@@ -17,6 +18,7 @@ from server.routers.text2sql_router import text2sql
 router = APIRouter()
 
 # 注册路由结构
+router.include_router(agent_design)  # /api/agent-design/*
 router.include_router(system)  # /api/system/*
 router.include_router(auth)  # /api/auth/*
 router.include_router(chat)  # /api/chat/*
